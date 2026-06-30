@@ -8,13 +8,14 @@ import isDev from 'electron-is-dev'
 let clientWin: any
 let serverWin: any
 let serverProcess: any
+let serverSocket = ''
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
   app.quit();
 }
 
-const createWindow = (socketName: string) => {
+const createWindow = (socketName = serverSocket) => {
   // Create the browser window.
   clientWin = new BrowserWindow({
     width: 800,
@@ -38,7 +39,7 @@ const createWindow = (socketName: string) => {
   
   clientWin.webContents.on('did-finish-load', () => {
     clientWin.webContents.send('set-socket', {
-      name: serverSocket
+      name: socketName
     })
   })
 };
@@ -54,8 +55,7 @@ function createBackgroundWindow(socketName) {
       nodeIntegration: true
     }
   })
-  win.loadURL(`file://${__dirname}/server-dev.html`)
-  
+  win.loadFile(path.join(app.getAppPath(), 'server-dev.html'))
 
   win.webContents.on('did-finish-load', () => {
     win.webContents.send('set-socket', { name: socketName })
@@ -94,11 +94,6 @@ app.on('before-quit', () => {
     serverProcess = null
   }
 })
-
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.on('ready', createWindow);
 
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits

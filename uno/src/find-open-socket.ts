@@ -1,7 +1,10 @@
 const net = require('net');
 const os = require('os');
 const { join } = require('path');
-const ipc = require('node-ipc');
+const ipcModule = require('node-ipc');
+const ipc = (ipcModule && typeof ipcModule === 'object' && 'default' in ipcModule)
+  ? ipcModule.default
+  : ipcModule;
 
 ipc.config.silent = true;
 
@@ -21,7 +24,7 @@ function isSocketTaken(name, fn) {
   });
 }
 
-async function findOpenSocket() {
+export default async function findOpenSocket() {
   let currentSocket = 1;
   console.log('checking', currentSocket);
   while (await isSocketTaken('myapp' + currentSocket)) {
@@ -31,5 +34,3 @@ async function findOpenSocket() {
   console.log('found socket', currentSocket);
   return 'myapp' + currentSocket;
 }
-
-module.exports = findOpenSocket;
