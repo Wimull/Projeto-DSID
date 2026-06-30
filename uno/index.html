@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hello World!</title>
+
+  </head>
+  <body>
+    <h1>💖 Hello World!</h1>
+    <p>Welcome to your Electron application.</p>
+    <script src="client-ipc.ts"></script>
+    <script type="module" src="/src/renderer.ts"></script>
+    <script>
+      if(!IS_DEV) {
+        var tag = document.createElement('meta');
+        tag.setAttribute("http-equiv", "Content-Security-Policy");
+        tag.setAttribute("content", "default-src 'self'; style-src 'self' 'unsafe-inline';")
+        document.head.appendChild(tag)
+      }
+    </script>
+  </body>
+</html>
