@@ -1,11 +1,150 @@
 const ipc = require('node-ipc')
 const {
   createAckMessage,
+  createConsensusReply,
   createErrorMessage,
   parseWireMessage,
   serializeTcpMessage,
   validateTcpMessage,
 } = require('./tcp-core')
+const { gameState, consensusManager } = require('./server-models')
+
+// Validação local de ações. Em uma arquitetura P2P, cada nó aplica sua própria validação
+// antes de responder com `agree` ou `disagree`, conforme o contrato da wiki.
+function validateGameAction(data) {
+  if (data.handler === 'make-factorial') {
+    if (!data.args || !Number.isInteger(data.args.num) || data.args.num < 1) {
+      return { valid: false, reason: 'make-factorial requires a positive integer num' }
+    }
+    if (data.args.num > 1000) {
+      return { valid: false, reason: 'make-factorial num is too large' }
+    }
+  }
+
+  if (data.handler === 'ring-ring') {
+    if (data.args && Object.keys(data.args).length > 0) {
+      return { valid: false, reason: 'ring-ring does not accept args' }
+    }
+  }
+
+  return { valid: true }
+}
+
+function respond(socket, message) {
+  const serialized = serializeTcpMessage(message)
+
+  if (socket && typeof socket.emit === 'function') {
+    socket.emit('message', serialized)
+    return
+  }
+
+  ipc.server.emit(socket, 'message', serialized)
+}
+
+const pendingActionSockets = new Map()
+
+function handleFinalizedProposal(proposal, handlers) {
+  if (!proposal || proposal.executed) {
+    return
+  }
+
+  proposal.executed = true
+  const socket = pendingActionSockets.get(proposal.key)
+
+  try {
+    const { handler, args = {} } = proposal.message.data || {}
+    gameState.applyAction(proposal.message)
+
+    if (handler && handlers[handler]) {
+      handlers[handler](args).then(
+        result => {
+          if (socket) {
+            respond(socket, createAckMessage(proposal.message.seq, { result, state: gameState.getState() }))
+          }
+        },
+        error => {
+          if (socket) {
+            respond(socket, createErrorMessage(proposal.message.seq, { reason: error.message || 'handler failed' }))
+          }
+        }
+      )
+    } else if (socket) {
+      respond(socket, createAckMessage(proposal.message.seq, { status: 'committed', state: gameState.getState() }))
+    }
+  } finally {
+    if (proposal.key) {
+      pendingActionSockets.delete(proposal.key)
+    }
+  }
+}
+
+function handleActionMessage(socket, message, handlers) {
+  const validationResult = validateGameAction(message.data)
+
+  if (!validationResult.valid) {
+    respond(socket, createConsensusReply(message.seq, false, { reason: validationResult.reason }))
+    return
+  }
+
+  const proposal = consensusManager.createProposal(message, message.data?.peerId || 'local')
+  pendingActionSockets.set(proposal.key, socket)
+
+  respond(socket, createConsensusReply(message.seq, true, { reason: 'locally validated' }))
+
+  const localVote = consensusManager.registerLocalVote(message.seq, true, 'locally validated')
+  if (localVote.finalized && localVote.accepted) {
+    handleFinalizedProposal(consensusManager.getProposal(message.seq), handlers)
+  }
+}
+
+function handleConsensusReply(socket, message, handlers) {
+  const peerId = message.data?.peerId || 'remote-peer'
+  const registered = consensusManager.registerResponse(message.seq, peerId, message.type === 'agree', message.data?.reason)
+
+  if (registered.finalized && registered.accepted) {
+    handleFinalizedProposal(consensusManager.getProposal(message.seq), handlers)
+  }
+}
+
+function handleIncomingMessage(data, socket, handlers) {
+  let parsed
+
+  try {
+    parsed = parseWireMessage(data)
+  } catch (error) {
+    respond(socket, createErrorMessage(1, { reason: error.message || 'invalid payload' }))
+    return
+  }
+
+  if (parsed.kind === 'legacy') {
+    const { id, name, args } = parsed.message
+    handleLegacyRequest({ id, name, args, socket, handlers })
+    return
+  }
+
+  const { message } = parsed
+  const validation = validateTcpMessage(message)
+
+  if (!validation.valid) {
+    respond(socket, createErrorMessage(message.seq || 1, { reason: validation.error }))
+    return
+  }
+
+  if (message.type === 'action') {
+    handleActionMessage(socket, message, handlers)
+    return
+  }
+
+  if (message.type === 'agree' || message.type === 'disagree') {
+    handleConsensusReply(socket, message, handlers)
+    return
+  }
+
+  if (message.type === 'keepAlive') {
+    respond(socket, createAckMessage(message.seq, { status: 'alive' }))
+    return
+  }
+}
 
 function init(socketName, handlers) {
   // O id do socket é o identificador da sala/nó, como descrito na wiki.
@@ -14,54 +153,14 @@ function init(socketName, handlers) {
 
   ipc.serve(() => {
     ipc.server.on('message', (data, socket) => {
-      // O backend recebe uma mensagem bruta da rede e tenta interpretá-la.
-      // Isso permite aceitar tanto o formato legado do projeto quanto o envelope TCP da wiki.
-      const parsed = parseWireMessage(data)
-
-      if (parsed.kind === 'legacy') {
-        const { id, name, args } = parsed.message
-        handleLegacyRequest({ id, name, args, socket, handlers })
-        return
-      }
-
-      const { message } = parsed
-      const validation = validateTcpMessage(message)
-
-      if (!validation.valid) {
-        ipc.server.emit(socket, 'message', serializeTcpMessage(createErrorMessage(message.seq || 1, { reason: validation.error })))
-        return
-      }
-
-      // Para a wiki, uma mensagem de action é o ponto de entrada para uma ação de jogo.
-      if (message.type === 'action') {
-        const { handler, args = {} } = message.data || {}
-        if (handlers[handler]) {
-          handlers[handler](args).then(
-            result => {
-              // Em caso de sucesso, responde com ACK e o resultado da execução.
-              ipc.server.emit(socket, 'message', serializeTcpMessage(createAckMessage(message.seq, { result })))
-            },
-            error => {
-              // Em caso de erro, devolve uma mensagem ERR com detalhes do problema.
-              ipc.server.emit(socket, 'message', serializeTcpMessage(createErrorMessage(message.seq, { reason: error.message || 'handler failed' })))
-              throw error
-            }
-          )
-        } else {
-          ipc.server.emit(socket, 'message', serializeTcpMessage(createErrorMessage(message.seq, { reason: 'unknown handler' })))
-        }
-        return
-      }
-
-      // Mensagens keepAlive e outras sem payload de execução são aceitas de forma simples.
-      if (message.type === 'keepAlive') {
-        ipc.server.emit(socket, 'message', serializeTcpMessage(createAckMessage(message.seq, { status: 'alive' })))
-      }
+      handleIncomingMessage(data, socket, handlers)
     })
   })
 
   ipc.server.start()
 }
+
+function handleLegacyRequest({ id, name, args, socket, handlers }) {
 
 function handleLegacyRequest({ id, name, args, socket, handlers }) {
   if (handlers[name]) {
@@ -85,4 +184,4 @@ function send(name, args) {
   ipc.server.broadcast('message', JSON.stringify({ type: 'push', name, args }))
 }
 
-module.exports = { init, send }
+module.exports = { init, send, handleIncomingMessage }

@@ -30,6 +30,13 @@ function run() {
   const err = createErrorMessage(5, { reason: 'bad payload' })
   assert.strictEqual(err.type, 'ERR')
 
+  const invalidAction = validateTcpMessage({ type: 'action', seq: 1, data: { handler: 123 } })
+  assert.strictEqual(invalidAction.valid, false)
+  assert.strictEqual(invalidAction.error, 'Action message must contain a non-empty handler string')
+
+  const validAction = validateTcpMessage({ type: 'action', seq: 2, data: { handler: 'make-factorial', args: { num: 1 } } })
+  assert.strictEqual(validAction.valid, true)
+
   const serialized = serializeTcpMessage(action)
   const parsed = parseWireMessage(serialized)
   assert.strictEqual(parsed.kind, 'tcp')

@@ -48,6 +48,51 @@ function createErrorMessage(seq, details = {}) {
   return buildTcpMessage('ERR', seq, details)
 }
 
+function validateActionData(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return {
+      valid: false,
+      error: 'Action message data must be an object',
+    }
+  }
+
+  if (typeof data.handler !== 'string' || data.handler.length === 0) {
+    return {
+      valid: false,
+      error: 'Action message must contain a non-empty handler string',
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(data, 'args')) {
+    if (data.args === null || typeof data.args !== 'object' || Array.isArray(data.args)) {
+      return {
+        valid: false,
+        error: 'Action message args must be an object when present',
+      }
+    }
+  }
+
+  return { valid: true }
+}
+
+function validateTcpMessage(message) {
+  if (!isWikiTcpMessage(message)) {
+    return {
+      valid: false,
+      error: 'Message must follow the wiki TCP envelope with type, seq and data',
+    }
+  }
+
+  if (message.type === 'action') {
+    const actionValidation = validateActionData(message.data)
+    if (!actionValidation.valid) {
+      return actionValidation
+    }
+  }
+
+  return { valid: true, message }
+}
+
 function isWikiTcpMessage(message) {
   return Boolean(
     message &&
@@ -88,17 +133,6 @@ function parseWireMessage(payload) {
 
 function serializeTcpMessage(message) {
   return JSON.stringify(message)
-}
-
-function validateTcpMessage(message) {
-  if (!isWikiTcpMessage(message)) {
-    return {
-      valid: false,
-      error: 'Message must follow the wiki TCP envelope with type, seq and data',
-    }
-  }
-
-  return { valid: true, message }
 }
 
 module.exports = {

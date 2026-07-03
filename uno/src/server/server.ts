@@ -2,6 +2,7 @@
 
 let serverHandlers = require('./server-handlers')
 let ipc = require('./server-ipc')
+let { configurePeers } = require('./server-models')
 
 let isDev, version
 
@@ -10,6 +11,7 @@ if (process.argv[2] === '--subprocess') {
   version = process.argv[3]
 
   let socketName = process.argv[4]
+  configurePeers(socketName, [])
   ipc.init(socketName, serverHandlers)
 } else {
   let { ipcRenderer, remote } = require('electron')
@@ -17,6 +19,7 @@ if (process.argv[2] === '--subprocess') {
   version = remote.app.getVersion()
 
   ipcRenderer.on('set-socket', (event, { name }) => {
+    configurePeers(name, [])
     ipc.init(name, serverHandlers)
   })
 }
