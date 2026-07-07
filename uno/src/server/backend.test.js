@@ -1,6 +1,8 @@
 const assert = require('assert')
 const GameState = require('./game-state')
 const ConsensusManager = require('./consensus-manager')
+const LeaderElection = require('./leader-election')
+const RoomManager = require('./room-manager')
 const { gameState, consensusManager } = require('./server-models')
 const {
   createActionMessage,
@@ -91,10 +93,121 @@ function runTcpCoreTests() {
   assert.strictEqual(invalid.valid, false)
 }
 
+function runLeaderElectionTests() {
+  const election = new LeaderElection('player-1')
+  assert.strictEqual(election.getCurrentLeader(), null)
+  assert.strictEqual(election.isLocalLeader(), false)
+
+  election.registerPeer('player-1')
+  assert.strictEqual(election.getCurrentLeader(), 'player-1')
+  assert.strictEqual(election.isLocalLeader(), true)
+  assert.strictEqual(election.getPeerCount(), 1)
+
+  election.registerPeer('player-2')
+  assert.strictEqual(election.getCurrentLeader(), 'player-2')
+  assert.strictEqual(election.isLocalLeader(), false)
+  assert.strictEqual(election.getPeerCount(), 2)
+
+  election.registerPeer('player-3')
+  assert.strictEqual(election.getCurrentLeader(), 'player-3')
+  assert.deepStrictEqual(election.getActivePeers(), ['player-1', 'player-2', 'player-3'])
+
+  let lastLeaderChange = null
+  election.onLeaderChanged = (info) => {
+    lastLeaderChange = info
+  }
+
+  election.unregisterPeer('player-3')
+  assert(lastLeaderChange !== null, 'onLeaderChanged should have been called')
+  assert.strictEqual(lastLeaderChange.newLeader, 'player-2', `Expected player-2 but got ${lastLeaderChange.newLeader}`)
+  assert.strictEqual(election.getCurrentLeader(), 'player-2')
+  assert.strictEqual(election.getPeerCount(), 2)
+
+  election.unregisterPeer('player-1')
+  assert.strictEqual(election.getCurrentLeader(), 'player-2')
+
+  election.unregisterPeer('player-2')
+  assert.strictEqual(election.getCurrentLeader(), null)
+  assert.strictEqual(election.getPeerCount(), 0)
+
+  const election2 = new LeaderElection('room-leader')
+  election2.registerPeer('alpha')
+  assert.strictEqual(election2.getCurrentLeader(), 'alpha')
+
+  election2.registerPeer('beta')
+  assert.strictEqual(election2.getCurrentLeader(), 'beta')
+
+  election2.registerPeer('gamma')
+  assert.strictEqual(election2.getCurrentLeader(), 'gamma')
+
+  election2.handleLeaderFailure()
+  assert.strictEqual(election2.getCurrentLeader(), 'beta')
+}
+
+function runRoomManagerTests() {
+  const room = new RoomManager('room-1', 'creator-1')
+  assert.strictEqual(room.getRoomStatus().status, 'waiting')
+  assert.strictEqual(room.getRoomStatus().playerCount, 0)
+  assert.strictEqual(room.getRoomStatus().canStart, false)
+
+  const player1ID = room.addPlayer(null, 'Alice')
+  assert(player1ID)
+  assert.strictEqual(room.getRoomStatus().playerCount, 1)
+  assert.strictEqual(room.isPlayerInRoom(player1ID), true)
+
+  let joinEvent = null
+  room.onPlayerJoined = (event) => {
+    joinEvent = event
+  }
+
+  const player2ID = room.addPlayer(null, 'Bob')
+  assert(joinEvent !== null)
+  assert.strictEqual(joinEvent.playerCount, 2)
+  assert.strictEqual(room.getRoomStatus().canStart, true)
+
+  assert.deepStrictEqual(room.getPlayerIDs().sort(), [player1ID, player2ID].sort())
+
+  let startEvent = null
+  room.onRoomStarted = (event) => {
+    startEvent = event
+  }
+
+  room.startRoom()
+  assert.strictEqual(room.getRoomStatus().status, 'playing')
+  assert(startEvent !== null)
+  assert.strictEqual(startEvent.playerCount, 2)
+
+  let leftEvent = null
+  room.onPlayerLeft = (event) => {
+    leftEvent = event
+  }
+
+  room.removePlayer(player2ID)
+  assert(leftEvent !== null)
+  assert.strictEqual(room.getRoomStatus().status, 'ended')
+
+  const room2 = new RoomManager('room-2', 'creator-2')
+  room2.addPlayer('player-x', 'Xavier')
+  room2.addPlayer('player-y', 'Yuki')
+  room2.addPlayer('player-z', 'Zoe')
+  assert.strictEqual(room2.getRoomStatus().playerCount, 3)
+  assert.strictEqual(room2.getRoomStatus().canStart, true)
+
+  try {
+    room2.addPlayer('player-w', 'William')
+    room2.addPlayer('player-v', 'Victor')
+    assert.fail('Should not allow more than maxPlayers')
+  } catch (e) {
+    assert(e.message.includes('full'))
+  }
+}
+
 function run() {
   runGameStateTests()
   runConsensusManagerTests()
   runTcpCoreTests()
+  runLeaderElectionTests()
+  runRoomManagerTests()
   console.log('backend tests passed')
 }
 
