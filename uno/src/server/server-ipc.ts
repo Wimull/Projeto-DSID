@@ -8,6 +8,65 @@ const {
   validateTcpMessage,
 } = require('./tcp-core')
 const { gameState, consensusManager } = require('./server-models')
+const FailureDetector = require('./failure-detector')
+const StateReplicator = require('./state-replicator')
+const RoomManager = require('./room-manager')
+
+// Instâncias para detecção de falhas e replicação de estado
+const failureDetector = new FailureDetector(2000, 5000)
+const stateReplicator = new StateReplicator(gameState, consensusManager)
+const roomManager = new RoomManager()
+let keepAliveInterval = null
+let seqCounter = 0
+
+// Callback: ao detectar peer suspeito, remover do jogo
+failureDetector.onPeerSuspected = ({peerId, timeSinceLastHeartbeat}) => {
+  console.log(`[FAILURE] Peer ${peerId} suspeito após ${timeSinceLastHeartbeat}ms`)
+  
+  // Remover jogador da sala
+  roomManager.removePlayer(peerId)
+  
+  // Se era líder: nova eleição
+  const LeaderElection = require('./leader-election')
+  if (LeaderElection.currentLeader === peerId) {
+    console.log(`[FAILURE] Líder ${peerId} offline, nova eleição...`)
+    LeaderElection.handleLeaderFailure()
+  }
+  
+  // Se <2 jogadores: game over
+  if (roomManager.getRoomStatus().playerCount < 2) {
+    console.log('[FAILURE] Quorum perdido, encerrando partida')
+    roomManager.endRoom('quorum-loss')
+  }
+}
+
+// Instâncias para detecção de falhas e replicação de estado
+const failureDetector = new FailureDetector(2000, 5000)
+const stateReplicator = new StateReplicator(gameState, consensusManager)
+const roomManager = new RoomManager()
+let keepAliveInterval = null
+let seqCounter = 0
+
+// Callback: ao detectar peer suspeito, remover do jogo
+failureDetector.onPeerSuspected = ({peerId, timeSinceLastHeartbeat}) => {
+  console.log(`[FAILURE] Peer ${peerId} suspeito após ${timeSinceLastHeartbeat}ms`)
+  
+  // Remover jogador da sala
+  roomManager.removePlayer(peerId)
+  
+  // Se era líder: nova eleição
+  const LeaderElection = require('./leader-election')
+  if (LeaderElection.currentLeader === peerId) {
+    console.log(`[FAILURE] Líder ${peerId} offline, nova eleição...`)
+    LeaderElection.handleLeaderFailure()
+  }
+  
+  // Se <2 jogadores: game over
+  if (roomManager.getRoomStatus().playerCount < 2) {
+    console.log('[FAILURE] Quorum perdido, encerrando partida')
+    roomManager.endRoom('quorum-loss')
+  }
+}
 
 // Validação local de ações. Em uma arquitetura P2P, cada nó aplica sua própria validação
 // antes de responder com `agree` ou `disagree`, conforme o contrato da wiki.
@@ -141,15 +200,37 @@ function handleIncomingMessage(data, socket, handlers) {
   }
 
   if (message.type === 'keepAlive') {
+    // Rastrear heartbeat do peer
+    const peerId = message.data?.peerId || message.from || 'remote-peer'
+    failureDetector.recordHeartbeat(peerId)
     respond(socket, createAckMessage(message.seq, { status: 'alive' }))
     return
   }
 }
 
-function init(socketName, handlers) {
+function init(socketName, handlers, peers = []) {
   // O id do socket é o identificador da sala/nó, como descrito na wiki.
   ipc.config.id = socketName
   ipc.config.silent = true
+
+  // Registrar peers para detecção de falhas
+  peers.forEach(peerId => {
+    failureDetector.registerPeer(peerId)
+    failureDetector.startMonitoring(peerId)
+  })
+
+  // Enviar keepAlive periódico
+  if (keepAliveInterval) clearInterval(keepAliveInterval)
+  keepAliveInterval = setInterval(() => {
+    seqCounter++
+    const keepAliveMsg = {
+      type: 'keepAlive',
+      seq: seqCounter,
+      data: {peerId: socketName},
+    }
+    const serialized = serializeTcpMessage(keepAliveMsg)
+    ipc.server.broadcast('message', serialized)
+  }, 2000)
 
   ipc.serve(() => {
     ipc.server.on('message', (data, socket) => {
@@ -159,8 +240,6 @@ function init(socketName, handlers) {
 
   ipc.server.start()
 }
-
-function handleLegacyRequest({ id, name, args, socket, handlers }) {
 
 function handleLegacyRequest({ id, name, args, socket, handlers }) {
   if (handlers[name]) {
@@ -184,4 +263,13 @@ function send(name, args) {
   ipc.server.broadcast('message', JSON.stringify({ type: 'push', name, args }))
 }
 
-module.exports = { init, send, handleIncomingMessage }
+module.exports = {
+  init,
+  send,
+  handleIncomingMessage,
+  handleActionMessage,
+  handleFinalizedProposal,
+  failureDetector,
+  stateReplicator,
+  roomManager,
+}
