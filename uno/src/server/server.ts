@@ -1,25 +1,25 @@
 //Código de entrada do servidor
 
-let serverHandlers = require('./server-handlers')
-let ipc = require('./server-ipc')
+import serverHandlers from './server-handlers'
+import ipc from './server-ipc'
+import { ipcRenderer } from 'electron'
 
 let isDev, version
 
 if (process.argv[2] === '--subprocess') {
   isDev = false
-  version = process.argv[3]
 
-  let socketName = process.argv[4]
-  ipc.init(socketName, serverHandlers)
+
+  const socketName = process.argv[4]
+  ipc.init(socketName, serverHandlers as any)
 } else {
-  let { ipcRenderer, remote } = require('electron')
   isDev = true
-  version = remote.app.getVersion()
+
 
   ipcRenderer.on('set-socket', (event, { name }) => {
-    ipc.init(name, serverHandlers)
+    ipc.init(name, serverHandlers as any)
   })
 }
 
 
-console.log(version, isDev)
+console.log(isDev)

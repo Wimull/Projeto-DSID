@@ -1,15 +1,18 @@
-const ipc = require('node-ipc')
+import ipc from 'node-ipc'
 
-function init(socketName, handlers) {
+
+
+
+function init(socketName: string, handlers: { [key: string]: (...args: any[]) => Promise<any> }) {
   ipc.config.id = socketName
   ipc.config.silent = true
 
   ipc.serve(() => {
     ipc.server.on('message', (data, socket) => {
-      let msg = JSON.parse(data)
-      let { id, name, args } = msg
+      const msg = JSON.parse(data)
+      const { id, name, args } = msg
 
-      if (handlers[name]) {
+      if (name in Object.keys(handlers)) {
         handlers[name](args).then(
           result => {
             ipc.server.emit(
@@ -43,8 +46,8 @@ function init(socketName, handlers) {
   ipc.server.start()
 }
 
-function send(name, args) {
+function send(name: string, args: any[]) {
   ipc.server.broadcast('message', JSON.stringify({ type: 'push', name, args }))
 }
 
-module.exports = { init, send }
+export default { init, send }
