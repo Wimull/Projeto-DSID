@@ -6,10 +6,9 @@
 
   </head>
   <body>
-    <h1>💖 Hello World!</h1>
-    <p>Welcome to your Electron application.</p>
+    <div id="app"></div>
     <script src="client-ipc.ts"></script>
-    <script type="module" src="/src/renderer.ts"></script>
+    <script type="module" src="/src/renderer/index.tsx"></script>
     <script>
       if(!IS_DEV) {
         var tag = document.createElement('meta');
