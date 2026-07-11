@@ -1,30 +1,40 @@
 // See the Electron documentation for details on how to use preload scripts:
 // https://www.electronjs.org/docs/latest/tutorial/process-model#preload-scripts
-const { ipcRenderer } = require('electron')
-const isDev = require('electron-is-dev')
-const ipc = require('node-ipc')
-const uuid = require('uuid')
+import { ipcRenderer, contextBridge } from 'electron'
+// import isDev from 'electron-is-dev'
+import ipc from 'node-ipc'
+import * as uuid from 'uuid'
+import serverHandlers from './server/server-handlers'
+import serverIpc from './server/server-ipc'
 
 let resolveSocketPromise
-let socketPromise = new Promise(resolve => {
-  resolveSocketPromise = resolve
+let socketPromise = new Promise((resolve) => {
+    resolveSocketPromise = resolve
 })
 
-window.IS_DEV = isDev
+// window.IS_DEV = isDev
 
-window.getServerSocket = () => {
-  return socketPromise
-}
+contextBridge.exposeInMainWorld('getServerSocket', () => {
+    return socketPromise
+})
 
 ipcRenderer.on('set-socket', (event, { name }) => {
-  resolveSocketPromise(name)
+    resolveSocketPromise(name)
 })
 
-window.ipcConnect = (id, func) => {
-  ipc.config.silent = true
-  ipc.connectTo(id, () => {
-    func(ipc.of[id])
-  })
-}
+ipcRenderer.on('set-socket', (event, { name }) => {
+    serverIpc.init(name, serverHandlers as any)
+})
 
-window.uuid = uuid
+contextBridge.exposeInMainWorld('ipcConnect', (id, func) => {
+    ipc.config.silent = true
+    ipc.connectTo(id, () => {
+        func(ipc.of[id], (cbs) => {
+            cbs.forEach((args) => {
+                ipc.of[id].on(...args)
+            })
+        })
+    })
+})
+
+contextBridge.exposeInMainWorld('uuid', uuid)
