@@ -48,13 +48,13 @@ const createWindow = (socketName = serverSocket) => {
     })
 }
 
-function createBackgroundWindow(socketName) {
+function createBackgroundWindow(socketName: string, show: boolean = false) {
     const win = new BrowserWindow({
         x: 500,
         y: 300,
         width: 700,
         height: 500,
-        show: true,
+        show: show,
         webPreferences: {
             nodeIntegration: true,
         },
@@ -78,27 +78,15 @@ function createBackgroundWindow(socketName) {
     serverWin = win
 }
 
-function createBackgroundProcess(socketName) {
-    serverProcess = fork(__dirname + '/server/server.js', [
-        '--subprocess',
-        app.getVersion(),
-        socketName,
-    ])
-
-    serverProcess.on('message', (msg) => {
-        console.log(msg)
-    })
-}
-
 app.on('ready', async () => {
     serverSocket = await findOpenSocket()
 
     createWindow(serverSocket)
 
     if (isDev) {
-        createBackgroundWindow(serverSocket)
+        createBackgroundWindow(serverSocket, true)
     } else {
-        createBackgroundProcess(serverSocket)
+        createBackgroundWindow(serverSocket, false)
     }
 })
 

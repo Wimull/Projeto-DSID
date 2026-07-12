@@ -18,8 +18,7 @@ function init(
         ipc.server.on('message', (data, socket) => {
             const msg = JSON.parse(data)
             const { id, name, args } = msg
-
-            if (name in Object.keys(handlers)) {
+            if (Object.keys(handlers).findIndex((key) => key === name) !== -1) {
                 handlers[name](args).then(
                     (result) => {
                         ipc.server.emit(
