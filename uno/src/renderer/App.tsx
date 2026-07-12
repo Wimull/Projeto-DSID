@@ -4,44 +4,57 @@ import React, { useEffect, useState } from 'react'
 // @ts-ignore: TS2307
 import './index.css'
 import GamePage from './components/GamePage'
+import HomePage from './components/HomePage'
+import LobbyPage from './components/LobbyPage'
 
 export default function App() {
     const [connected, setConnected] = useState(false)
     const [currPage, setCurrPage] = useState<'home' | 'lobby' | 'game'>('home')
+    const [lobbyAddress, setLobbyAddress] = useState('192.168.0.10:8080')
+    const [createdLobby, setCreatedLobby] = useState(false)
+
     //@ts-ignore
     listen('ready', () => {
         setConnected(true)
     })
+
     useEffect(() => {
         if (!connected) {
             return
-        } else {
-            //@ts-ignore
-            send('ring-ring', []).then((result) => {
-                console.log('result from ring-ring:', result)
-            })
         }
+
+        //@ts-ignore
+        send('ring-ring', []).then((result) => {
+            console.log('result from ring-ring:', result)
+        })
     }, [connected])
+
+    if (currPage === 'game') {
+        return <GamePage onReturnToLobby={() => setCurrPage('lobby')} />
+    }
+
+    if (currPage === 'lobby') {
+        return (
+            <LobbyPage
+                onBackToHome={() => setCurrPage('home')}
+                onStartGame={() => setCurrPage('game')}
+                createdLobby={createdLobby}
+            />
+        )
+    }
+
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100">
-            {currPage === 'home' ? (
-                <div>
-                    <h1>Uno</h1>
-                    <button
-                        type="button"
-                        className="px-4 py-2 mt-4 text-white bg-blue-500 rounded hover:bg-blue-600"
-                        onClick={() => setCurrPage('game')}
-                    >
-                        Jogar
-                    </button>
-                </div>
-            ) : currPage === 'lobby' ? (
-                <div>
-                    <h1>Lobby</h1>
-                </div>
-            ) : currPage === 'game' ? (
-                <GamePage />
-            ) : null}
-        </div>
+        <HomePage
+            lobbyAddress={lobbyAddress}
+            onLobbyAddressChange={setLobbyAddress}
+            onJoinLobby={() => {
+                setCurrPage('lobby')
+                setCreatedLobby(false)
+            }}
+            onCreateLobby={() => {
+                setCurrPage('lobby')
+                setCreatedLobby(true)
+            }}
+        />
     )
 }
