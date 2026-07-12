@@ -258,6 +258,7 @@ export default function GamePage() {
                 </div>
                 <button
                     className={` px-4 z-10 py-2 w-52 text-white bg-blue-500 rounded hover:bg-blue-600 font-bold text-2xl disabled:opacity-50 disabled:cursor-not-allowed ${selectedCard?.startsWith('wild') && selectedColor ? (selectedColor === 'blue' ? 'bg-blue-700' : selectedColor === 'green' ? 'bg-green-500' : selectedColor === 'yellow' ? 'bg-yellow-700' : selectedColor === 'red' ? 'bg-red-500' : '') : ''}`}
+
                     type="button"
                     disabled={
                         !selectedCard ||
