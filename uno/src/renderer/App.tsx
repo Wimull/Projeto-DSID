@@ -17,6 +17,16 @@ export default function App() {
     const [hasJoined, setHasJoined] = useState(false)
     const [starterPlayerTurnId, setStarterPlayerTurnId] = useState("")
 
+    const handleReturnHome = async () => {
+        await send("disconnect").catch((e) => {
+            alert("Erro ao tentar voltar para a tela inicial: " + e.message)
+        })
+        setPlayers([])
+        setHasJoined(false)
+        setStarterPlayerTurnId("")
+        setCurrPage("home")
+    }
+
     if (currPage === 'game') {
         return <GamePage
          onReturnToLobby={(currPlayers) => {
@@ -26,10 +36,7 @@ export default function App() {
              setCurrPage('lobby')
         }} 
         onReturnHome={() => {
-                setPlayers([])
-                setHasJoined(false)
-                setStarterPlayerTurnId("")
-                setCurrPage("home")
+            handleReturnHome()
             }}
         playerName={players[players.findIndex(p => p.isUser)]?.name ?? ""}
         playerId={players[players.findIndex(p => p.isUser)]?.id ?? ""}
@@ -43,10 +50,7 @@ export default function App() {
         return (
             <LobbyPage
                 onBackToHome={() => {
-                    setPlayers([])
-                    setHasJoined(false)
-                    setStarterPlayerTurnId("")
-                    setCurrPage("home")}}
+                    handleReturnHome()}}
                 onStartGame={(currPlayers, starterTurn) => {
                     setPlayers(currPlayers)
                     setStarterPlayerTurnId(starterTurn)
