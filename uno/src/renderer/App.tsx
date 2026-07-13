@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import {type Player} from "./GamePage"
 // Suppress TypeScript error for side-effect CSS import when no declaration is present
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: TS2307
@@ -12,33 +13,55 @@ export default function App() {
     const [currPage, setCurrPage] = useState<'home' | 'lobby' | 'game'>('home')
     const [lobbyAddress, setLobbyAddress] = useState('192.168.0.10:8080')
     const [createdLobby, setCreatedLobby] = useState(false)
-
-    //@ts-ignore
-    listen('ready', () => {
-        setConnected(true)
-    })
-
-    useEffect(() => {
-        if (!connected) {
-            return
-        }
-
-        //@ts-ignore
-        send('ring-ring', []).then((result) => {
-            console.log('result from ring-ring:', result)
-        })
-    }, [connected])
+    const [players, setPlayers] = useState<Player[]>([])
+    const [hasJoined, setHasJoined] = useState(false)
+    const [starterPlayerTurnId, setStarterPlayerTurnId] = useState("")
 
     if (currPage === 'game') {
-        return <GamePage onReturnToLobby={() => setCurrPage('lobby')} />
+        return <GamePage
+         onReturnToLobby={(currPlayers) => {
+             setPlayers(currPlayers)
+             setHasJoined(true)
+             setStarterPlayerTurnId("")
+             setCurrPage('lobby')
+        }} 
+        onReturnHome={() => {
+                setPlayers([])
+                setHasJoined(false)
+                setStarterPlayerTurnId("")
+                setCurrPage("home")
+            }}
+        playerName={players[players.findIndex(p => p.isUser)]?.name ?? ""}
+        playerId={players[players.findIndex(p => p.isUser)]?.id ?? ""}
+        starterPlayerTurnId={starterPlayerTurnId}
+        starterPlayers={players}
+        starterIsHost={players[players.findIndex(p => p.isUser)]?.isHost ?? false}
+         
+         />
     }
-
     if (currPage === 'lobby') {
         return (
             <LobbyPage
-                onBackToHome={() => setCurrPage('home')}
-                onStartGame={() => setCurrPage('game')}
+                onBackToHome={() => {
+                    setPlayers([])
+                    setHasJoined(false)
+                    setStarterPlayerTurnId("")
+                    setCurrPage("home")}}
+                onStartGame={(currPlayers, starterTurn) => {
+                    setPlayers(currPlayers)
+                    setStarterPlayerTurnId(starterTurn)
+                    setCurrPage('game')
+                    
+                }
+
+                }
                 createdLobby={createdLobby}
+                starterPlayers={players}
+                starterPlayerName={players[players.findIndex(p => p.isUser)]?.name ?? ""}
+                starterPlayerId={players[players.findIndex(p => p.isUser)]?.id ?? ""}
+                lobbyIP={lobbyAddress}
+                starterHasJoined={hasJoined}
+
             />
         )
     }

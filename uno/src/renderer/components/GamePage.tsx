@@ -1,22 +1,49 @@
-import React from 'react'
+import React, {useEffect, useState} from 'react'
+
+type Card = {id: string, card: string}
+
+
+export type Player =         {
+    name: string,
+    id: string,
+    hand: Card[],
+    isHost: boolean,
+    isUser?: boolean
+    isReady: boolean
+}
 
 export default function GamePage({
     onReturnToLobby,
+    playerId,
+    playerName,
+    starterPlayerTurnId = playerId,
+    onReturnHome,
+    starterPlayers,
+    starterIsHost
 }: {
-    onReturnToLobby: () => void
+    onReturnToLobby: (players: Player[]) => void,
+    onReturnHome: () => void,
+    playerId: string,
+    playerName: string,
+    starterPlayerTurnId: string,
+    starterPlayers: Player[],
+    starterIsHost: boolean
 }) {
-    const [showColorPicker, setShowColorPicker] = React.useState(false)
-    const [selectedColor, setSelectedColor] = React.useState<string | null>(
+    const [isHost, setIsHost] = useState(starterIsHost)
+    const [loading, setLoading] = useState(false)
+    const [currentPlayerTurnId, setCurrentPlayerTurnId] = useState(starterPlayerTurnId)
+    const [showColorPicker, setShowColorPicker] = useState(false)
+    const [selectedColor, setSelectedColor] = useState<string | null>(
         null
     )
-    const [playedColor, setPlayedColor] = React.useState<string | null>('blue')
-    const [playedCard, setPlayedCard] = React.useState<string>('blue9')
-    const [selectedCard, setSelectedCard] = React.useState<string | null>(null)
-    const [gameResult, setGameResult] = React.useState<{
+    const [playedColor, setPlayedColor] = useState<string | null>('blue')
+    const [playedCard, setPlayedCard] = useState<string>('blue9')
+    const [selectedCard, setSelectedCard] = useState<string | null>(null)
+    const [gameResult, setGameResult] = useState<{
         type: 'victory' | 'defeat'
         winnerName: string
     } | null>(null)
-    const [hand, setHand] = React.useState<string[]>([
+    const [hand, setHand] = useState<Card[]>([
         'yellow9',
         'red1',
         'bluePlus2',
@@ -25,31 +52,11 @@ export default function GamePage({
         'wild',
         'wild4',
     ])
-    const [otherPlayers, setOtherPlayers] = React.useState<
-        {
-            name: string
-            id: string
-            hand: string[]
-        }[]
-    >([
-        {
-            name: 'Player 1',
-            id: '1',
-            hand: ['back', 'back', 'back', 'back', 'back', 'back', 'back'],
-        },
-        {
-            name: 'Player 2',
-            id: '2',
-            hand: ['back', 'back', 'back', 'back', 'back', 'back', 'back'],
-        },
-        {
-            name: 'Player 3',
-            id: '3',
-            hand: ['back', 'back', 'back', 'back', 'back', 'back', 'back'],
-        },
-    ])
+    const [otherPlayers, setOtherPlayers] = useState<
 
-    function canPlayCard(card: string): boolean {
+    >(starterPlayers)
+
+    function canPlayCard({id, card}: Card): boolean {
         if ((card === 'wild' || card === 'wild4') && selectedColor) {
             return true
         }
@@ -68,9 +75,9 @@ export default function GamePage({
         return false
     }
 
-    function onClickCard(card: string) {
+    function onClickCard(card: Card) {
         setSelectedCard(card)
-        if (card.startsWith('wild')) {
+        if (card.card.startsWith('wild')) {
             setSelectedColor(null)
             setShowColorPicker(true)
         } else {
@@ -78,39 +85,46 @@ export default function GamePage({
         }
     }
 
-    const handlePlaySelectedCard = () => {
+    const handlePlaySelectedCard = async () => {
         if (!selectedCard) {
             return
         }
-
-        if (selectedCard === 'baralho') {
-            setSelectedCard(null)
-            return
-        }
-
         if (!canPlayCard(selectedCard)) {
             return
         }
-
-        setHand((currentHand) => {
-            const updatedHand = currentHand.filter(
-                (card) => card !== selectedCard
-            )
-            setPlayedCard(selectedCard)
-            if (selectedCard.startsWith('wild') && selectedColor) {
-                setPlayedColor(selectedColor)
-            }
-            const isVictory = updatedHand.length === 0
-
-            if (isVictory) {
-                setGameResult({ type: 'victory', winnerName: 'Você' })
-                return updatedHand
-            }
-
-            return updatedHand
-        })
-
+        setLoading(true)
         setSelectedCard(null)
+
+        if (selectedCard === 'baralho') {
+            const data: {playerHand: Card[], turnPlayerID: string} = await send("action", {
+                type: "draw"
+            }).catch((e) => {
+                alert("Um erro aconteceu: " + e.message)
+            })
+            setHand(data.playerHand)
+            setCurrentPlayerTurnId(data.turnPlayerID)
+            setLoading(false)
+            return
+        }
+
+
+        const data: {playerHand: Card[], turnPlayerID: string, isVictory: boolean}  = await send("action", {
+            type: "playCard",
+            card: selectedCard,
+            selectedColor
+        }).catch((e) => {
+            alert("Um erro aconteceu: " + e.message)
+        })
+        setHand(data.playerHand)
+        setCurrentPlayerTurnId(data.turnPlayerID)
+        if (data.isVictory) {
+            setGameResult({ type: 'victory', winnerName: 'Você' })
+        }
+
+        setLoading(false)
+        setSelectedCard(undefined)
+        setPlayedColor(selectedColor)
+        setSelectedColor(undefined)
         setShowColorPicker(false)
     }
 
@@ -118,8 +132,112 @@ export default function GamePage({
         setGameResult(null)
         setSelectedCard(null)
         setShowColorPicker(false)
-        onReturnToLobby()
+        onReturnToLobby([{
+            hand,
+            id: playerId,
+            isHost,
+name: playerName,
+isUser: true,
+isReady: false
+        }, ...otherPlayers.map(p => ({
+            ...p,
+            isUser: false,
+            isReady: false
+        }))
+
+        ])
     }
+
+    useEffect(() => {
+        listen("action", (data: {
+            playerId: string,
+            playedCard: string,
+            playerHand: Card[],
+            playerTurnId: string,
+            selectedColor?: string,
+        } | {
+            isVictory: true,
+            victoriousPlayerName: string
+        } | {
+            isVictory: false
+        }) => {
+            
+            if (playerId === data.playerId) {
+                setLoading(false)
+                setHand(data.playerHand)
+            } else {
+                setOtherPlayers(players => {
+                    const newPlayers = [...players]
+                    newPlayers[newPlayers.findIndex(p => p.id === data.playerId)].hand = data.playerHand
+                    return newPlayers
+                })
+            }
+            if(data.isVictory) {
+                setGameResult({ type:"defeat", winnerName: data.victoriousPlayerName})
+            }
+            setCurrentPlayerTurnId(data.playerTurnId)
+            setPlayedCard(data.playedCard)
+            if(data.selectedColor) setPlayedColor(data.selectedColor)
+
+        })
+
+        listen("error", (data: {
+            type: "disconnect"
+            playerId: string,
+            playerTurnId: string,
+        } | {
+            type: "abort"
+            message: string
+        } | {
+            type: "error"
+            message: string
+        }) => {
+            if (data.type === "disconnect") {
+                setOtherPlayers(players => {
+                    const newPlayers = [...players]
+                    newPlayers = newPlayers.filter(p => p.id !== data.playerId)
+                    return newPlayers
+                })
+                setCurrentPlayerTurnId(data.playerTurnId)
+            }
+            if (data.type === "abort") {
+                alert("Partida abortada. Razão: " + data.message)
+                onReturnHome()
+            }
+            if (data.type === "error"){
+                alert("Um erro aconteceu: " + data.message)
+            }
+
+        })
+
+        listen("changeHost", (data: {playerId: string}) => {
+            if (playerId === data.playerId) setIsHost(true) 
+            else {
+        setIsHost(false)
+        setOtherPlayers(players => {
+            const newPlayers = [...players]
+            return newPlayers.map(p => {
+                if(p.id === data.playerId){
+                    return ({
+                        ...p,
+                        isHost: true
+                    })
+                } 
+                return ({
+                    ...p,
+                    isHost: false
+                })
+            })
+        })
+    }
+        })
+
+        return () => {
+            unlisten("action")
+            unlisten("error")
+            unlisten("changeHost")
+        }
+    }, [])
 
     return (
         <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#fff7ed_0%,_#fee2e2_35%,_#fef3c7_100%)] p-4 text-slate-900 sm:p-6">
@@ -135,7 +253,7 @@ export default function GamePage({
                             </h1>
                         </div>
                         <div className="rounded-full bg-white/20 px-4 py-2 text-sm font-semibold">
-                            Sua vez
+                            {currentPlayerTurnId === playerId ? "Sua Vez" : `Vez de: ${otherPlayers[otherPlayers.findIndex(currentPlayerTurnId)]?.name || "Erro"}` }
                         </div>
                     </div>
                 </header>
@@ -271,8 +389,8 @@ export default function GamePage({
 
                                 <button
                                     type="button"
-                                    className={`relative z-20 rounded-2xl transition-all hover:scale-110 hover:z-20 border border-red-500 border-4 ${selectedCard === 'baralho' ? 'scale-110 z-20' : ''}`}
-                                    onClick={() => onClickCard('baralho')}
+                                    className={`relative z-20 rounded-2xl transition-all hover:scale-110 hover:z-20 border border-red-500 border-4 ${selectedCard.card === 'baralho' ? 'scale-110 z-20' : ''}`}
+                                    onClick={() => onClickCard({card: 'baralho', id: "baralho"})}
                                 >
                                     <img
                                         src={'/back.png'}
@@ -345,14 +463,14 @@ export default function GamePage({
                         <div className="flex flex-wrap p-2 pb-4 justify-center items-center gap-3 overflow-x-auto overflow-y-clip pb-1">
                             {hand.map((card, index) => (
                                 <button
-                                    key={index}
-                                    className={`rounded-2xl transition-all hover:scale-110 hover:z-20 ${selectedCard === card ? 'scale-110 border-4 border-red-500 z-20' : ''}`}
+                                    key={card.id}
+                                    className={`rounded-2xl transition-all hover:scale-110 hover:z-20 ${selectedCard.id === card.id ? 'scale-110 border-4 border-red-500 z-20' : ''}`}
                                     type="button"
                                     onClick={() => onClickCard(card)}
                                 >
                                     <img
-                                        src={'/' + card + '.png'}
-                                        alt={card}
+                                        src={'/' + card.card + '.png'}
+                                        alt={card.card}
                                         className="h-40 w-28 rounded-[20px] object-cover shadow-lg"
                                     />
                                 </button>
@@ -365,18 +483,18 @@ export default function GamePage({
                                 baralho.
                             </p>
                             <button
-                                className={`rounded-xl px-4 py-2 text-lg font-bold text-white transition ${selectedCard?.startsWith('wild') && selectedColor ? (selectedColor === 'blue' ? 'bg-blue-500' : selectedColor === 'green' ? 'bg-green-500' : selectedColor === 'yellow' ? 'bg-yellow-500' : selectedColor === 'red' ? 'bg-red-700' : 'bg-blue-500') : 'bg-red-500 hover:bg-red-600'}`}
+                                className={`rounded-xl px-4 py-2 text-lg font-bold text-white transition ${selectedCard.card?.startsWith('wild') && selectedColor ? (selectedColor === 'blue' ? 'bg-blue-500' : selectedColor === 'green' ? 'bg-green-500' : selectedColor === 'yellow' ? 'bg-yellow-500' : selectedColor === 'red' ? 'bg-red-700' : 'bg-blue-500') : 'bg-red-500 hover:bg-red-600'}`}
                                 type="button"
                                 onClick={handlePlaySelectedCard}
                                 disabled={
                                     !selectedCard ||
                                     !(
                                         canPlayCard(selectedCard) ||
-                                        selectedCard === 'baralho'
-                                    )
+                                        selectedCard.card === 'baralho'
+                                    ) || currentPlayerTurnId !== playerId
                                 }
                             >
-                                {selectedCard === 'baralho'
+                                {loading ? "Aguardando" : selectedCard.card === 'baralho'
                                     ? 'Comprar carta'
                                     : 'Jogar carta'}
                             </button>

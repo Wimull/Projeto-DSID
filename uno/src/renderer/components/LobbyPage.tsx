@@ -1,47 +1,195 @@
 import React, { useMemo, useState } from 'react'
+import {type Player} from "./GamePage"
 
 const cardAssets = ['/red0.png', '/blue0.png', '/yellow0.png', '/green0.png']
-
 type LobbyPageProps = {
     onBackToHome: () => void
-    onStartGame: () => void
+    onStartGame: (players: Player[], starterPlayerTurnId: string) => void
     createdLobby: boolean
+    starterPlayers: Player[]
+    starterPlayerName: string
+    starterPlayerId: string
+    lobbyIP: string
+    starterHasJoined: boolean
 }
 
 export default function LobbyPage({
     onBackToHome,
     onStartGame,
     createdLobby,
+    starterPlayers,
+    lobbyIP,
+    starterPlayerId,
+    starterPlayerName
+
 }: LobbyPageProps) {
-    const [playerName, setPlayerName] = useState('')
-    const [hasJoined, setHasJoined] = useState(false)
+    const [loading, setLoading] = useState(false)
+    const [port, setPort] = useState("")
+    const [playerName, setPlayerName] = useState(starterPlayerName)
+    const [playerId, setPlayerId] = useState(starterPlayerId)
+    const [hasJoined, setHasJoined] = useState(starterHasJoined)
     const [isReady, setIsReady] = useState(false)
+    const [connectedPlayers, setConnectedPlayers] = useState<Player[]>(starterPlayers)
 
-    const connectedPlayers = useMemo(() => {
-        const players = []
+    
+    const allPlayersReady =
+    connectedPlayers.length > 0 &&
+    connectedPlayers.every((player) => player.isReady)
+    const isHost = connectedPlayers[connectedPlayers.findIndex(p => p.isUser)]?.isHost ?? createdLobby
+    
+    const handleStartGame = async () => {
+        setLoading(true)
+        const data: {
+            players: Player[]
+            starterPlayerTurnId: string,
+        } = await send("startGame", {}).catch((e) => {
+            alert("Um erro aconteceu ao tentar iniciar o jogo: " + e.message)
+            setLoading(false)
+        })
+        setLoading(false)
+        onStartGame(data.players, data.starterPlayerTurnId)
 
-        if (hasJoined && playerName.trim()) {
-            players.push({
-                id: 'me',
-                name: playerName.trim(),
-                role: createdLobby ? 'Host' : 'Player',
-                ready: isReady,
-            })
-        }
+    }
 
-        return players
-    }, [hasJoined, playerName, isReady, createdLobby])
+    const handleChangeIsReady = async () => {
+        setLoading(true)
+        const data: {isReady} = await send("changeIsReady", {isReady}).catch((e) => {
+            alert("Um erro aconteceu: " + e.message)
+            setLoading(false)
+        })
+        setLoading(false)
+        setIsReady(data.isReady)
+    }
 
-    const handleContinue = () => {
+    const handleContinue = async () => {
         if (playerName.trim()) {
             setHasJoined(true)
+        } 
+        setLoading(true)
+        if (createdLobby) {
+            const data: {
+                playerId: string,
+                port: string
+            } = send("createLobby", {}).catch((e) => {
+                alert("Um erro aconteceu ao tentar criar a sala: " + e.message)
+                setLoading(false)
+            })
+            setConnectedPlayers([{
+                 name: playerName,
+ id: data.playerId,
+hand: [],
+isHost: true,
+isUser: true,
+  isReady: false,
+            }
+            ])
+            setLoading(false)
+        } else {
+            const data: {players: Player[]} = await send("connectToLobby", {
+                ip: lobbyIP,
+                playerName
+            }).catch((e) => {
+                alert("Um erro aconteceu ao tentar entrar no lobby: " + e.message)
+                setLoading(false)
+            })
+            setLoading(false)
+            setConnectedPlayers(data.players)
         }
     }
 
-    const allPlayersReady =
-        connectedPlayers.length > 0 &&
-        connectedPlayers.every((player) => player.ready)
-    const isHost = createdLobby
+    useEffect(() => {
+        listen("startGame", (data: {
+            players: Player[]
+            starterPlayerTurnId: string
+        }) => 
+        onStartGame(data.players, data.starterPlayerTurnId)
+        )
+        listen("changeIsReady", (data: {
+            playerId: string,
+            isReady: boolean,
+        }) => {
+            setConnectedPlayers(players => {
+                const newPlayers = [...players]
+                newPlayers[newPlayers.findIndex(p => p.id === data.playerId)]?.isReady = data.isReady 
+            })
+        })
+        listen("connect", (data: {
+            playerId: string,
+            playerName: string,
+        }) => {
+            setConnectedPlayers(players => {
+                const newPlayers = [...players]
+                newPlayers.push({
+                    name: data.playerName,
+                    id: data.playerId,
+                   hand: [],
+                   isHost: false,
+                   isUser: false,
+                     isReady: false,
+                })
+                return newPlayers
+            })
+        })
+
+        listen("error", (data: {
+            type: "disconnect"
+            playerId: string,
+            playerTurnId: string,
+        } | {
+            type: "abort"
+            message: string
+        } | {
+            type: "error"
+            message: string
+        }) => {
+            if (data.type === "disconnect") {
+                setOtherPlayers(players => {
+                    const newPlayers = [...players]
+                    newPlayers = newPlayers.filter(p => p.id !== data.playerId)
+                    return newPlayers
+                })
+                setCurrentPlayerTurnId(data.playerTurnId)
+            }
+            if (data.type === "abort") {
+                alert("Partida abortada. Razão: " + data.message)
+                onReturnHome()
+            }
+            if (data.type === "error"){
+                alert("Um erro aconteceu: " + data.message)
+            }
+
+        })
+
+        listen("changeHost", (data: {playerId: string}) => {
+            if (playerId === data.playerId) setIsHost(true) 
+            else {
+        setIsHost(false)
+        setOtherPlayers(players => {
+            const newPlayers = [...players]
+            return newPlayers.map(p => {
+                if(p.id === data.playerId){
+                    return ({
+                        ...p,
+                        isHost: true
+                    })
+                } 
+                return ({
+                    ...p,
+                    isHost: false
+                })
+            })
+        })
+    }
+        })
+
+        return () => {
+            unlisten("startGame")
+            unlisten("changeIsReady")
+            unlisten("connect")
+            unlisten("error")
+            unlisten("changeHost")
+        }
+    }, [])
 
     return (
         <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#fff7ed_0%,_#fee2e2_35%,_#fef3c7_100%)] p-4 text-slate-900 sm:p-6">
@@ -123,16 +271,18 @@ export default function LobbyPage({
                                         type="button"
                                         className="w-full rounded-xl bg-red-500 px-4 py-3 font-semibold text-white transition hover:bg-red-600"
                                         onClick={handleContinue}
+                                        disabled={loading}
                                     >
-                                        Continuar
+                                        {loading ? "Aguardando" : "Continuar"}
                                     </button>
 
                                     <button
                                         type="button"
                                         className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-100"
                                         onClick={onBackToHome}
+                                        disabled={loading}
                                     >
-                                        Voltar para a tela inicial
+                                        {loading ? "Aguardando" : "Voltar para a tela inicial"}
                                     </button>
                                 </div>
                             ) : (
@@ -169,18 +319,18 @@ export default function LobbyPage({
                                                         </span>
                                                         <span
                                                             className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                                                                player.ready
+                                                                player.isReady
                                                                     ? 'bg-emerald-100 text-emerald-700'
                                                                     : 'bg-slate-200 text-slate-600'
                                                             }`}
                                                         >
-                                                            {player.ready
+                                                            {player.isReady
                                                                 ? 'Pronto'
                                                                 : 'Aguardando'}
                                                         </span>
                                                     </div>
                                                     <span className="text-sm text-slate-500">
-                                                        {player.role}
+                                                        {player.isHost ? "Host" : "Jogador"}
                                                     </span>
                                                 </li>
                                             ))}
@@ -194,14 +344,15 @@ export default function LobbyPage({
                                                 ? 'bg-slate-900 hover:bg-slate-700'
                                                 : 'cursor-not-allowed bg-slate-400'
                                         }`}
-                                        onClick={onStartGame}
-                                        disabled={!isHost || !allPlayersReady}
+                                        onClick={handleStartGame}
+                                        disabled={!isHost || !allPlayersReady || loading}
                                     >
-                                        {isHost
-                                            ? allPlayersReady
+                                        {!isHost
+                                            ? 'Aguardando o host iniciar a partida'
+                                            : loading ? "Aguardando" : allPlayersReady
                                                 ? 'Iniciar partida'
                                                 : 'Aguardando jogadores ficarem prontos'
-                                            : 'Aguardando o host iniciar a partida'}
+                                            }
                                     </button>
 
                                     <button
@@ -212,10 +363,11 @@ export default function LobbyPage({
                                                 : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
                                         }`}
                                         onClick={() =>
-                                            setIsReady((current) => !current)
+                                            handleChangeIsReady()
                                         }
+                                        disabled={loading}
                                     >
-                                        {isReady
+                                        {loading ? "Aguardando" : isReady
                                             ? 'Pronto ✓'
                                             : 'Marcar como pronto'}
                                     </button>
@@ -224,8 +376,9 @@ export default function LobbyPage({
                                         type="button"
                                         className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-100"
                                         onClick={onBackToHome}
-                                    >
-                                        Voltar para a tela inicial
+                                        disabled={loading}
+                                        >
+                                            {loading ? "Aguardando" : "Voltar para a tela inicial"} 
                                     </button>
                                 </div>
                             )}
