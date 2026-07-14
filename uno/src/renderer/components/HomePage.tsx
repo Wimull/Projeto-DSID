@@ -1,4 +1,4 @@
-import React from 'react'
+import React, {useEffect} from 'react'
 
 const cardAssets = ['/red0.png', '/blue0.png', '/yellow0.png', '/green0.png']
 
@@ -15,6 +15,23 @@ export default function HomePage({
     onJoinLobby,
     onCreateLobby,
 }: HomePageProps) {
+
+    useEffect(() => {
+
+        listen("error", (data:  {
+            type: "error"
+            message: string
+        }) => {
+            if (data.type === "error"){
+                alert("Um erro aconteceu: " + data.message)
+            }
+
+        })
+
+        return () => {
+            unlisten("error")
+        }
+    }, [])
     return (
         <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#fff7ed_0%,_#fee2e2_35%,_#fef3c7_100%)] p-4 text-slate-900 sm:p-6">
             <div className="mx-auto flex min-h-screen max-w-6xl items-center justify-center">

@@ -1,7 +1,8 @@
 // Funções acessadas pela front end com a função `send(nomeDoHandler)` 
 
 
-const handlers = {
+function serverHandlers(port: number) {
+  const handlers = {
 
   
   _history: [] as number[],
@@ -25,5 +26,7 @@ const handlers = {
   return 'hello!'
 }
 }
+return handlers
+}
 
-export default handlers
+export default serverHandlers

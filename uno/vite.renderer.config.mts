@@ -9,7 +9,7 @@ export default defineConfig({
     plugins: [
         tailwindcss(),
         react(),
-        nodePolyfills({ include: ['os', 'path', 'fs', 'child_process'] }),
+        nodePolyfills({ include: ['os', 'path', 'fs', 'child_process', 'net'] }),
     ],
 
     build: {
