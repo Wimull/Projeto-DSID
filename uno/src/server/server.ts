@@ -6,7 +6,7 @@ import net from 'node:net'
 
 import * as game from './game'
 
-import { onClientError, onMessage } from './callbacks'
+import { onClientError, onMessage, startLeaderElection } from './callbacks'
 // eslint-disable-next-line import/no-unresolved
 import { v4 as uuid } from 'uuid'
 
@@ -51,6 +51,12 @@ export function connect(port: number, address: string) {
         })
 
         client.on('close', () => {
+            const player = Array.from(
+                game.connectedPlayersList,
+                ([k, v]) => v
+            ).find((p) => p.address === address && p.port === port)!
+            if (player.isHost) startLeaderElection()
+            game.disconnectPlayer(player.id)
             connections.delete(`${address}:${port}`)
             ipc.send({
                 type: 'push',
@@ -67,13 +73,17 @@ export function connect(port: number, address: string) {
             console.log('Connection closed')
         })
         client.on('end', () => {
-            connections.delete(`${address}:${port}`)
             console.log('Connection ended')
         })
 
         // Handle errors
         client.on('error', (err) => {
-            onClientError(err, address, port)
+            const player = Array.from(
+                game.connectedPlayersList,
+                ([k, v]) => v
+            ).find((p) => p.address === address && p.port === port)!
+            if (player.isHost) startLeaderElection()
+            game.disconnectPlayer(player.id)
             connections.delete(`${address}:${port}`)
             client.end()
             resolve(false)
@@ -101,23 +111,39 @@ server.on('connection', (connectionSocket) => {
         )
     })
     connectionSocket.on('error', (err) => {
-        onClientError(
-            err,
-            connectionSocket.localAddress || '',
-            connectionSocket.localPort || 0
+        const player = Array.from(
+            game.connectedPlayersList,
+            ([k, v]) => v
+        ).find(
+            (p) =>
+                p.address === (connectionSocket.localAddress || '') &&
+                p.port === (connectionSocket.localPort || 0)
+        )!
+        if (player.isHost) startLeaderElection()
+        game.disconnectPlayer(player.id)
+        connections.delete(
+            `${connectionSocket.localAddress || ''}:${connectionSocket.localPort || 0}`
         )
         ipc.send({
             name: 'error',
             type: 'push',
             args: { data: { type: 'error', message: err.stack } },
         })
-        connections.delete(
-            `${connectionSocket.localAddress || ''}:${connectionSocket.localPort || 0}`
-        )
+
         connectionSocket.end()
     })
 
     connectionSocket.on('end', () => {
+        const player = Array.from(
+            game.connectedPlayersList,
+            ([k, v]) => v
+        ).find(
+            (p) =>
+                p.address === (connectionSocket.localAddress || '') &&
+                p.port === (connectionSocket.localPort || 0)
+        )!
+        if (player.isHost) startLeaderElection()
+        game.disconnectPlayer(player.id)
         connections.delete(
             `${connectionSocket.localAddress || ''}:${connectionSocket.localPort || 0}`
         )

@@ -67,7 +67,9 @@ function becomeLeader(player: ServerSidePlayer, notify = true) {
     return player
 }
 
-function startLeaderElection({ notify = true }: { notify?: boolean } = {}) {
+export function startLeaderElection({
+    notify = true,
+}: { notify?: boolean } = {}) {
     const connectedPlayers = Array.from(game.connectedPlayersList.values())
 
     if (connectedPlayers.length === 0) {
