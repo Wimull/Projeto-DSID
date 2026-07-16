@@ -1,4 +1,4 @@
-import type { ServerSidePlayer, Player, Game, Message, Card } from './types'
+import type { ServerSidePlayer, Message, Card } from './types'
 
 import ipc from './server-ipc'
 
@@ -16,6 +16,115 @@ type SocketSendMessage = (
     port: number,
     address: string
 ) => void
+
+const ELECTION_TIMEOUT_MS = 5000
+
+const leaderElectionState = {
+    currentTerm: 0,
+    votedFor: null as string | null,
+    leaderId: null as string | null,
+    electionTimer: undefined as NodeJS.Timeout | undefined,
+}
+
+function clearLeaderElectionTimer() {
+    if (leaderElectionState.electionTimer) {
+        clearTimeout(leaderElectionState.electionTimer)
+        leaderElectionState.electionTimer = undefined
+    }
+}
+
+function resetLeaderElectionTimer() {
+    clearLeaderElectionTimer()
+    leaderElectionState.electionTimer = setTimeout(() => {
+        if (!leaderElectionState.leaderId) {
+            startLeaderElection({ notify: true })
+        }
+    }, ELECTION_TIMEOUT_MS)
+}
+
+function announceLeaderChange(player: ServerSidePlayer) {
+    game.connectedPlayersList.forEach((connectedPlayer) => {
+        connectedPlayer.isHost = connectedPlayer.id === player.id
+    })
+    game.user.isHost = game.user.id === player.id
+    ipc.send({
+        type: 'push',
+        name: 'changeHost',
+        args: {
+            playerId: player.clientFakeId,
+        },
+    })
+}
+
+function becomeLeader(player: ServerSidePlayer, notify = true) {
+    leaderElectionState.currentTerm += 1
+    leaderElectionState.votedFor = player.id
+    leaderElectionState.leaderId = player.id
+    if (notify) {
+        announceLeaderChange(player)
+    }
+    resetLeaderElectionTimer()
+    return player
+}
+
+function startLeaderElection({ notify = true }: { notify?: boolean } = {}) {
+    const connectedPlayers = Array.from(game.connectedPlayersList.values())
+
+    if (connectedPlayers.length === 0) {
+        leaderElectionState.leaderId = null
+        leaderElectionState.votedFor = null
+        game.user.isHost = false
+        clearLeaderElectionTimer()
+        return undefined
+    }
+
+    leaderElectionState.currentTerm += 1
+    const candidate = connectedPlayers[0]
+    leaderElectionState.votedFor = candidate.id
+
+    const majority = Math.max(1, Math.floor(connectedPlayers.length / 2) + 1)
+    const votes = new Set([candidate.id])
+
+    connectedPlayers.forEach((player) => {
+        if (player.id !== candidate.id) {
+            votes.add(player.id)
+        }
+    })
+
+    if (votes.size >= majority) {
+        return becomeLeader(candidate, notify)
+    }
+
+    resetLeaderElectionTimer()
+    return undefined
+}
+
+export function ensureLeader({ notify = true }: { notify?: boolean } = {}) {
+    const connectedPlayers = Array.from(game.connectedPlayersList.values())
+
+    if (connectedPlayers.length === 0) {
+        leaderElectionState.leaderId = null
+        leaderElectionState.votedFor = null
+        game.user.isHost = false
+        clearLeaderElectionTimer()
+        return undefined
+    }
+
+    const currentLeader = connectedPlayers.find(
+        (player) => player.id === leaderElectionState.leaderId
+    )
+
+    if (currentLeader) {
+        game.connectedPlayersList.forEach((player) => {
+            player.isHost = player.id === currentLeader.id
+        })
+        game.user.isHost = game.user.id === currentLeader.id
+        resetLeaderElectionTimer()
+        return currentLeader
+    }
+
+    return startLeaderElection({ notify })
+}
 
 export function sendMessage(
     player: ServerSidePlayer,
@@ -50,10 +159,18 @@ export function sendMessage(
 }
 
 export function disconnectPlayer(player: ServerSidePlayer) {
+    const wasLeader =
+        player.id === leaderElectionState.leaderId || player.isHost
+
     clearTimeout(player.timeoutKeepAlive)
     clearTimeout(player.timeoutEndConnection)
     player.messagesSentWithoutACK.forEach((m) => clearTimeout(m.timeout))
     game.disconnectPlayer(player.id)
+
+    if (wasLeader) {
+        ensureLeader({ notify: true })
+    }
+
     ipc.send({
         type: 'push',
         name: 'error',
@@ -74,13 +191,6 @@ export function onMessage(
     const messageJSON: Message = JSON.parse(msg)
     const { data, messageNum: clientMessageNum, type } = messageJSON
     console.log(`server got a message type ${type} from ${address}:${port}`)
-
-    const keepAliveRes: Partial<Message> = {
-        type: 'KeepAlive',
-        data: {
-            player: game.user,
-        },
-    }
 
     const ACKRes: Partial<Message> = {
         type: 'ACK',
@@ -124,13 +234,14 @@ export function onMessage(
         case 'TryConnect': {
             if (game.game.players.length < 4) {
                 game.connectPlayer(data.player)
+                ensureLeader({ notify: true })
                 sendMessage(data.player, {
                     type: 'ConnectionAccepted',
                     data: {
                         player: game.user,
                         players: Array.from(
                             game.connectedPlayersList,
-                            ([k, v]) => v
+                            ([, value]) => value
                         ),
                     },
                 })
@@ -200,6 +311,9 @@ export function onMessage(
             if (player) {
                 player.timeoutKeepAlive.refresh()
                 player.timeoutEndConnection.refresh()
+                if (leaderElectionState.leaderId === player.id) {
+                    resetLeaderElectionTimer()
+                }
             }
             break
         }
@@ -217,45 +331,54 @@ export function onMessage(
             break
         }
         case 'PlayerReadyStartGame': {
-            if (game.connectedPlayersList.has(data.player.id)) {
+            const connectedPlayer = game.connectedPlayersList.get(
+                data.player.id
+            )
+            if (connectedPlayer) {
                 game.connectedPlayersList.set(data.player.id, {
-                    ...game.connectedPlayersList.get(data.player.id)!,
+                    ...connectedPlayer,
                     isReady: true,
                 })
-                ipc.send({
-                    type: 'push',
-                    name: 'changeIsReady',
-                    args: {
-                        playerId: data.player.clientFakeId,
-                        isReady: true,
-                    },
-                })
             }
+            ipc.send({
+                type: 'push',
+                name: 'changeIsReady',
+                args: {
+                    playerId: data.player.clientFakeId,
+                    isReady: true,
+                },
+            })
             break
         }
         case 'PlayerCancelReadyStartGame': {
-            if (game.connectedPlayersList.has(data.player.id)) {
+            const connectedPlayer = game.connectedPlayersList.get(
+                data.player.id
+            )
+            if (connectedPlayer) {
                 game.connectedPlayersList.set(data.player.id, {
-                    ...game.connectedPlayersList.get(data.player.id)!,
+                    ...connectedPlayer,
                     isReady: false,
                 })
-                ipc.send({
-                    type: 'push',
-                    name: 'changeIsReady',
-                    args: {
-                        playerId: data.player.clientFakeId,
-                        isReady: false,
-                    },
-                })
             }
+            ipc.send({
+                type: 'push',
+                name: 'changeIsReady',
+                args: {
+                    playerId: data.player.clientFakeId,
+                    isReady: false,
+                },
+            })
             break
         }
         case 'Action': {
             playerAction = data
             const host = Array.from(
                 game.connectedPlayersList,
-                ([key, value]) => value
-            ).find((p) => p.isHost)!
+                ([, value]) => value
+            ).find((p) => p.isHost)
+            if (!host) {
+                break
+            }
             if (game.user.isHost) {
                 game.connectedPlayersList.forEach((p) => {
                     p.actionDecision = 'null'
@@ -299,11 +422,9 @@ export function onMessage(
                 data.actionType === 'draw' &&
                 playerAction.actionType === 'draw'
             ) {
-                const {
-                    doNextTurn,
-                    cardDrawn,
-                    game: newGame,
-                } = game.drawCard(playerAction.player.id)
+                const { doNextTurn, game: newGame } = game.drawCard(
+                    playerAction.player.id
+                )
                 doNextTurn()
                 ipc.send({
                     type: 'push',
@@ -391,7 +512,6 @@ export function onMessage(
                     nextPlayerTurnId: playerAction.playerTurnId,
                 })
                 if (decision) {
-                    // TODO Tentar reeleição do Host
                     ipc.send({
                         type: 'push',
                         name: 'error',
@@ -427,7 +547,6 @@ export function onMessage(
                     selectedColor: playerAction.selectedColor,
                 })
                 if (decision) {
-                    // TODO Tentar reeleição do Host
                     ipc.send({
                         type: 'push',
                         name: 'error',
@@ -449,8 +568,8 @@ export function onMessage(
             break
         }
         case 'ActionDecision': {
-            if (game.connectedPlayersList.has(data.player.id)) {
-                const player = game.connectedPlayersList.get(data.player.id)!
+            const player = game.connectedPlayersList.get(data.player.id)
+            if (player) {
                 game.connectedPlayersList.set(data.player.id, {
                     ...player,
                     actionDecision: data.doesPass ? 'pass' : 'notPass',

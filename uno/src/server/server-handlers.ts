@@ -1,6 +1,6 @@
 // Funções acessadas pela front end com a função `send(nomeDoHandler)`
 
-import { disconnectPlayer, sendMessage } from './callbacks'
+import { disconnectPlayer, ensureLeader, sendMessage } from './callbacks'
 import * as game from './game'
 import { connect } from './server'
 // eslint-disable-next-line import/no-unresolved
@@ -26,11 +26,13 @@ function serverHandlers(port: number) {
                 game.connectedPlayersList.forEach((p) => {
                     p.actionDecision = 'null'
                 })
-                const player = game.connectedPlayersList.get(game.user.id)!
-                game.connectedPlayersList.set(game.user.id, {
-                    ...player,
-                    actionDecision: 'pass',
-                })
+                const player = game.connectedPlayersList.get(game.user.id)
+                if (player) {
+                    game.connectedPlayersList.set(game.user.id, {
+                        ...player,
+                        actionDecision: 'pass',
+                    })
+                }
             }
             if (data.type === 'draw') {
                 const { game: newGame, cardDrawn } = game.drawCard(game.user.id)
@@ -84,7 +86,7 @@ function serverHandlers(port: number) {
         startGame: async () => {
             const seed = Math.round(Math.random() * 10000)
             const newGame = game.startGame(
-                Array.from(game.connectedPlayersList, ([key, value]) => value),
+                Array.from(game.connectedPlayersList, ([, value]) => value),
                 seed
             )
             game.connectedPlayersList.forEach((p) => {
@@ -103,6 +105,7 @@ function serverHandlers(port: number) {
             game.user.clientFakeId = uuid()
             game.user.name = playerName
             game.connectedPlayersList.set(game.user.id, game.user)
+            ensureLeader({ notify: false })
             return {
                 port,
                 playerId: game.user.clientFakeId,
@@ -119,6 +122,7 @@ function serverHandlers(port: number) {
             game.user.clientFakeId = uuid()
             game.user.name = playerName
             game.connectedPlayersList.set(game.user.id, game.user)
+            ensureLeader({ notify: false })
             const [address, port] = lobbyIp.split(':')
             connect(parseInt(port), address).then((success) => {
                 if (!success) return
@@ -133,10 +137,8 @@ function serverHandlers(port: number) {
                     messagesSentWithoutACK: [],
                     name: '',
                     port: parseInt(port),
-                    // eslint-disable-next-line @typescript-eslint/no-empty-function
-                    timeoutKeepAlive: (() => {}) as any,
-                    // eslint-disable-next-line @typescript-eslint/no-empty-function
-                    timeoutEndConnection: (() => {}) as any,
+                    timeoutKeepAlive: setTimeout(() => undefined, 0),
+                    timeoutEndConnection: setTimeout(() => undefined, 0),
                     isUser: false,
                 }
                 sendMessage(host, {
