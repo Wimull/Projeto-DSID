@@ -19,7 +19,9 @@ export default function GamePage({
     starterPlayerTurnId = playerId,
     onReturnHome,
     starterPlayers,
-    starterIsHost
+    starterIsHost,
+    starterColor,
+    starterPlayedCard
 }: {
     onReturnToLobby: (players: Player[]) => void,
     onReturnHome: () => void,
@@ -27,7 +29,9 @@ export default function GamePage({
     playerName: string,
     starterPlayerTurnId: string,
     starterPlayers: Player[],
-    starterIsHost: boolean
+    starterIsHost: boolean,
+    starterColor: string,
+    starterPlayedCard: string
 }) {
     const [isHost, setIsHost] = useState(starterIsHost)
     const [loading, setLoading] = useState(false)
@@ -36,9 +40,9 @@ export default function GamePage({
     const [selectedColor, setSelectedColor] = useState<string | null>(
         null
     )
-    const [playedColor, setPlayedColor] = useState<string | null>('blue')
-    const [playedCard, setPlayedCard] = useState<string>('blue9')
-    const [selectedCard, setSelectedCard] = useState<string | null>(null)
+    const [playedColor, setPlayedColor] = useState<string | null>(starterColor)
+    const [playedCard, setPlayedCard] = useState<string>(starterPlayedCard)
+    const [selectedCard, setSelectedCard] = useState<Card | null>(null)
     const [gameResult, setGameResult] = useState<{
         type: 'victory' | 'defeat'
         winnerName: string

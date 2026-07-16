@@ -4,6 +4,8 @@ import serverHandlers from './server-handlers'
 import ipc from './server-ipc'
 import net from "node:net";
 
+import * as game from "./game"
+
 import { onClientError, onMessage } from "./callbacks.js";
 import { v4 as uuid } from "uuid";
 
@@ -24,9 +26,9 @@ console.log(isDev)
 
 
 
-const connections: Map<string, net.Socket> = new Map([]);
+export const connections: Map<string, net.Socket> = new Map([]);
 
-function sendMessage(data: string, port: number, address: string) {
+export function sendMessage(data: string, port: number, address: string) {
 	console.log(`sending message ${data} to ${address}:${port}`);
 	const socket = connections.get(`${address}:${port}`);
 	if (socket) {
@@ -36,11 +38,14 @@ function sendMessage(data: string, port: number, address: string) {
 const server = net.createServer();
 
 
-function connect(port: number, address: string){
+export function connect(port: number, address: string){
+	const isConnected = new Promise((resolve) => {
+
     const client = new net.Socket()
     console.log("Connected to " + address + ":" + port)
 
     client.connect(parseInt(port), address, () => {
+		resolve(true)
         connections.set(`${address}:${port}`, client)
     })
 	connectionSocket.on("data", (data) => {
@@ -50,6 +55,10 @@ function connect(port: number, address: string){
 
     client.on("close", () => {
 		connections.delete(`${address}:${port}`);
+		ipc.send({type: "push", name: "error", args: {
+			type: "disconnect",
+			playerId: Array.from(game.connectedPlayersList, ([k, v]) => v).find(p => p.address === address && p.port === port).clientFakeId
+		}})
         console.log("Connection closed");
     });
     client.on("end", () => {
@@ -63,27 +72,34 @@ function connect(port: number, address: string){
 		connections.delete(`${address}:${port}`);
 		client.end();
 	});
+})
+return isConnected
 }
 
 server.on("connection", (connectionSocket) => {
 	const id = uuid();
 	console.log("client connected");
 
-	connections.set(`${id}:${0}`, connectionSocket);
+	connections.set(`${connectionSocket.localAddress}:${connectionSocket.localPort}`, connectionSocket);
 
 	connectionSocket.on("data", (data) => {
 		console.log("message received");
-		onMessage(data.toString(), id, 0, sendMessage);
+		onMessage(data.toString(), connectionSocket.localAddress, connectionSocket.localPort, sendMessage);
 	});
 	connectionSocket.on("error", (err) => {
 		onClientError(err, id, 0, sendMessage);
         ipc.send({name: "error", type: "push", args: {data: {type: "error", message: err.stack}}})
-		connections.delete(`${id}:${0}`);
+		connections.delete(`${connectionSocket.localAddress}:${connectionSocket.localPort}`);
 		connectionSocket.end();
 	});
 
 	connectionSocket.on("end", () => {
-		connections.delete(`${id}:${0}`);
+		connections.delete(`${connectionSocket.localAddress}:${connectionSocket.localPort}`);
+		ipc.send({type: "push", name: "error", args: {
+			type: "disconnect",
+			playerId: Array.from(game.connectedPlayersList, ([k, v]) => v).find(p => p.address === connectionSocket.localAddress && p.port === connectionSocket.localPort
+				).clientFakeId
+		}})
 		connectionSocket.end();
 		console.log("client disconnected");
 	});

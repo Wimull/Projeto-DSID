@@ -1,16 +1,20 @@
 import type {
 	ServerSidePlayer,
-	Category,
+	Player,
+	Game,
 	Message,
-	Word,
     Card
 } from "./types.ts";
 
+import ipc from "./server-ipc"
 import { v4 as uuidv4 } from "uuid";
 
 import {connectedPlayersList} from "./game.ts"
 
-import {PORT} from "./server.ts"
+import {PORT, connections, connect, sendMessage as socketSendMessage} from "./server.ts"
+
+import * as game from "./game.ts"
+
 
 
 type SocketSendMessage = (
@@ -55,36 +59,20 @@ function sendMessage(
 }
 
 function disconnectPlayer(
-	player: ServerSidePlayer,
-	socketSendMessage: SocketSendMessage
+	player: ServerSidePlayer
 ) {
 	clearTimeout(player.timeoutKeepAlive);
 	clearTimeout(player.timeoutEndConnection);
 	player.messagesSentWithoutACK.forEach((m) => clearTimeout(m.timeout));
-	connectedPlayersList.delete(player.id);
-	connectedPlayersList.forEach((receivingPlayer) => {
-		const res: Omit<Message, "messageNum"> = {
-			type: "OtherPlayerDisconnect",
-			data: {
-				player: {
-					name: player.name,
-					id: player.clientFakeId,
-				},
-			},
-		};
-		sendMessage(receivingPlayer, res, socketSendMessage);
-	});
+	game.disconnectPlayer(player.id)
+	ipc.send({type: "push", name: "error", args: {
+		type: "disconnect",
+		playerId: player.clientFakeId
+	}})
+	connections.get(`${player.address}:${player.port}`)?.end()
+
 }
-let categories: Category[] = [
-	"animal",
-	"cor",
-	"filme",
-	"fruta",
-	"MSE",
-	"nome",
-	"pais",
-	"trabalho",
-];
+
 export function onMessage(
 	msg: string,
 	address: string,
@@ -94,35 +82,6 @@ export function onMessage(
 	const messageJSON: Message = JSON.parse(msg);
 	const { data, messageNum: clientMessageNum, type } = messageJSON;
 	console.log(`server got a message type ${type} from ${address}:${port}`);
-
-	const letters = [
-		"A",
-		"B",
-		"C",
-		"D",
-		"E",
-		"F",
-		"G",
-		"H",
-		"I",
-		"J",
-		"K",
-		"L",
-		"M",
-		"N",
-		"O",
-		"P",
-		"Q",
-		"R",
-		"S",
-		"T",
-		"U",
-		"V",
-		"W",
-		"X",
-		"Y",
-		"Z",
-	];
 
 	const keepAliveRes: Partial<Message> = {
 		type: "KeepAlive",
@@ -135,140 +94,74 @@ export function onMessage(
 		data: null,
 	};
 
-	function endGame() {
-		const leaderboard: { name: string; id: string; points: number }[] = [];
-		connectedPlayersList.forEach((player) => {
-			leaderboard.push({
-				name: player.name,
-				id: player.clientFakeId,
-				points: player.points,
-			});
-		});
-		leaderboard.sort((a, b) => b.points - a.points);
-
-		if (leaderboard.length > 0) {
-			connectedPlayersList.forEach((player) => {
-				const res: Omit<Message, "messageNum"> = {
-					type: "EndGame",
-					data: {
-						leaderboard,
-					},
-				};
-				sendMessage(player, res, socketSendMessage);
-			});
-		}
-		connectedPlayersList.forEach((player) => {
-			disconnectPlayer(player, socketSendMessage);
-		});
-		categories = [
-			"animal",
-			"cor",
-			"filme",
-			"fruta",
-			"MSE",
-			"nome",
-			"pais",
-			"trabalho",
-		];
-	}
-
-	function tryStartNextRound() {
-		let isEveryPlayerReady = true;
-		const candidates: Word[] = [];
-		const category = categories.shift();
-		if (!category) {
-			endGame();
-			return;
-		}
-		//Copilot com alterações significativas
-		connectedPlayersList.forEach((receivingPlayer) => {
-			if (!receivingPlayer.readyNextRound) {
-				isEveryPlayerReady = false;
-			}
-			if (receivingPlayer.words[category])
-				candidates.push(receivingPlayer.words[category]);
-		});
-		if (isEveryPlayerReady) {
-			connectedPlayersList.forEach((receivingPlayer) => {
-				const res: Omit<Message, "messageNum"> = {
-					type: "StartRound",
-
-					data: {
-						candidates,
-						category,
-					},
-				};
-				sendMessage(receivingPlayer, res, socketSendMessage);
-			});
-		}
-		//Fim do Copilot
-	}
 
 	if (type !== "ACK")
 		socketSendMessage(JSON.stringify({...ACKRes, data: {...connectedPlayersList.get("localhost:"+PORT)}}), port, address);
+	let playerAction: {
+		player: ServerSidePlayer,
+		actionType: "draw",
+		cardDrawn: Card,
+		playerTurnId: string
+	} | {
+		player: ServerSidePlayer,
+		actionType: "playCard",
+		cardPlayed: Card,
+		selectedColor?: "blue" | "red" | "green" | "yellow",
+		playerTurnId: string
+	}
 
 	switch (type) {
-		case "Connect": {
-			const id = uuidv4();
-			const player: ServerSidePlayer = {
-				id,
-				name: data.player.name,
-				points: 0,
-				words: {
-					animal: null,
-					cor: null,
-					filme: null,
-					fruta: null,
-					MSE: null,
-					nome: null,
-					pais: null,
-					trabalho: null,
-				},
-				readyStartGame: false,
-				readyNextRound: false,
-				clientFakeId: uuidv4(),
-				address: address,
-				port: port,
-				timeoutKeepAlive: setTimeout(() => {
-					sendMessage(player, {...keepAliveRes, data: {player}}, socketSendMessage);
-				}, 5000),
-				timeoutEndConnection: setTimeout(() => {
-					disconnectPlayer(player, socketSendMessage);
-				}, 15000),
-				messagesSentWithoutACK: [],
-			};
-			const res: Omit<Message, "messageNum"> = {
-				type: "Connect",
-				data: {
-					player: {
-						clientFakeId: player.clientFakeId,
-						id,
-						name: player.name,
-						points: player.points,
-					},
-				},
-			};
-			sendMessage(player, res, socketSendMessage);
-			connectedPlayersList.forEach((receivingPlayer) => {
-				const resOthers: Omit<Message, "messageNum"> = {
-					type: "OtherPlayerConnect",
+		case "TryConnect": {
+			if (game.game.players.length < 4){
+				game.connectPlayer(data.player)
+				sendMessage(data.player, {
+					type: "ConnectionAccepted",
 					data: {
-						player: {
-							name: player.name,
-							clientFakeId: player.clientFakeId,
-						},
-					},
-				};
-				sendMessage(receivingPlayer, resOthers, socketSendMessage);
-			});
-			connectedPlayersList.set(id, player);
-
-			break;
+						players: Array.from(game.connectedPlayersList, ([k, v]) => v)
+					}
+				}, socketSendMessage)
+			} else {
+				sendMessage(data.player, {
+					type: "ConnectionDenied",
+					data: {
+						player: data.player
+					}
+				}, socketSendMessage)
+			}
+			break
 		}
-
+		case "ConnectionAccepted": {
+			data.players.forEach((p: ServerSidePlayer) => {
+				connect(p.port, p.address).then(() => {
+					sendMessage(p, {type: "Connect", data: {player: game.user}}, socketSendMessage)
+					ipc.send({type:"push", name:"acceptConnect", args: {
+						players: data.players.map((p) => ({
+							name: p.name,
+							hand: p.hand,
+							id: p.clientFakeId,
+							isHost: p.isHost,
+							isReady: p.isReady,
+							isUser: game.user.id === p.id
+						}))
+					}})
+				})
+			})
+			break
+		}
+		case "ConnectionDenied": {
+			ipc.send({type: "push", name:"error", args: {type: "error", message: "Sala cheia"}})
+			break
+		}
+		case "Connect": {
+			ipc.send({type:"push", name:"connect", args: {
+				playerId: data.player.clientFakeId,
+				playerName: data.player.name,
+			}})
+			break
+		}
 		case "Disconnect": {
 			const player = connectedPlayersList.get(data.player.id);
-			if (player) disconnectPlayer(player, socketSendMessage);
+			if (player) disconnectPlayer(player);
 			break;
 		}
 
@@ -294,103 +187,177 @@ export function onMessage(
 			break;
 		}
 		case "PlayerReadyStartGame": {
-			const player = connectedPlayersList.get(data.player.id);
-			if (player) {
-				player.readyStartGame = true;
-				let isEveryPlayerReady = true;
-
-				// Copilot
-				connectedPlayersList.forEach((receivingPlayer) => {
-					if (!receivingPlayer.readyStartGame) {
-						isEveryPlayerReady = false;
-					}
-				});
-				if (isEveryPlayerReady) {
-					connectedPlayersList.forEach((receivingPlayer) => {
-						const res: Omit<Message, "messageNum"> = {
-							type: "StartGame",
-							data: {
-								categories,
-								chosenLetter:
-									letters[
-										Math.floor(
-											Math.random() * (letters.length - 1)
-										)
-									] || "A",
-							},
-						};
-						sendMessage(receivingPlayer, res, socketSendMessage);
-					});
-				}
-				//Fim do Copilot
+			if(game.connectedPlayersList.has(data.player.id)){
+				game.connectedPlayersList.set(data.player.id, {
+					...game.connectedPlayersList.get(data.player.id),
+					isReady: true
+				})
+				ipc.send({type: "push", name: "changeIsReady", args: {
+					playerId: data.player.clientFakeId,
+					isReady: true
+				}})
 			}
-			break;
+			break
 		}
 		case "PlayerCancelReadyStartGame": {
-			const player = connectedPlayersList.get(data.player.id);
-			if (player) {
-				player.readyStartGame = false;
+			if(game.connectedPlayersList.has(data.player.id)){
+				game.connectedPlayersList.set(data.player.id, {
+					...game.connectedPlayersList.get(data.player.id),
+					isReady: false
+				})
+				ipc.send({type: "push", name: "changeIsReady", args: {
+					playerId: data.player.clientFakeId,
+					isReady: false
+				}})
 			}
-			break;
+			break
 		}
-		case "PlayerStopCall": {
-			const player = connectedPlayersList.get(data.player.id);
-			if (player) {
-				connectedPlayersList.forEach((receivingPlayer) => {
-					const res: Omit<Message, "messageNum"> = {
-						type: "StopCall",
-						data: {
-							player: {
-								name: player.name,
-								clientFakeId: player.clientFakeId,
-							},
-						},
-					};
-					sendMessage(receivingPlayer, res, socketSendMessage);
-				});
+		case "Action": {
+			playerAction = data
+			const host = Array.from(game.connectedPlayersList, ([key, value]) => value).find(p => p.isHost)
+			if (data.actionType === "draw") {
+				const decision = game.validateAction({player: data.player, type: "draw", cardDrawn: data.cardDrawn, nextPlayerTurnId: data.playerTurnId})
+				sendMessage(host, {type: "ActionDecision", data: {
+					player: game.user,
+					doesPass: decision
+				}}, socketSendMessage)
+			} else if (data.actionType === "playCard") {
+				const decision = game.validateAction({player: data.player, type: "play", card: data.cardPlayed, nextPlayerTurnId: data.playerTurnId, selectedColor: data.selectedColor})
+				sendMessage(host, {type: "ActionDecision", data: {
+					player: game.user,
+					doesPass: decision
+				}}, socketSendMessage)
 			}
-			break;
+			break
 		}
-		case "PlayerWords": {
-			const player = connectedPlayersList.get(data.player.id);
-			if (player) {
-				player.words = data.player.words;
-				player.readyNextRound = true;
+		case "ActionPassed": {
+			if(data.actionType === "draw" && playerAction.actionType === "draw"){
+				const {doNextTurn, cardDrawn, game: newGame} = game.drawCard(playerAction.player.id)
+				doNextTurn()
+				ipc.send({type: "push", name:"action", args: {
+					playerId: playerAction.player.clientFakeId,
+            playedCard: newGame.game.playedCard,
+            playerHand: playerAction.player.hand,
+            playerTurnId: playerAction.playerTurnId,
+            selectedColor: playerAction.selectedColor,
+			isVictory: playerAction.player.hand === 0,
+			victoriousPlayerName: playerAction.player.hand === 0 ? playerAction.player.name : undefined
+				}})
 
-				tryStartNextRound();
+			} else if (data.actionType === "playCard" && playerAction.actionType === "playCard") {
+				const {doNextTurn, game: newGame} = game.playCard(playerAction.player.id, playerAction.cardPlayed, playerAction.selectedColor)
+				doNextTurn()
+				newGame.players.forEach((p: ServerSidePlayer) => {
+
+					ipc.send({type: "push", name:"action", args: {
+						playerId: p.clientFakeId,
+				playedCard: newGame.game.playedCard,
+				playerHand: p.hand,
+				playerTurnId: playerAction.playerTurnId,
+				selectedColor: playerAction.selectedColor,
+				isVictory: p.hand === 0,
+				victoriousPlayerName: p.hand === 0 ? p.name : undefined
+					}})
+					
+				})
+			} else {
+				ipc.send({type: "push", name: "error", args: {
+					type: "abort",
+					message: "Erro ao validar ação do usuário, abortando a partida."
+				}})
+				game.connectedPlayersList.forEach((p) => {
+					sendMessage(p, {type: "Disconnect", data: {player: game.user}}, socketSendMessage)
+					disconnectPlayer(p)
+				})
+				
 			}
-			break;
+			break
 		}
-		case "PlayerVotedWords":
-			data.votedWords.forEach((word) => {
-				const votedPlayer = connectedPlayersList
-					.values()
-					.toArray()
-					.find(
-						(p) =>
-							Object.values(p.words).findIndex(
-								(w) => w?.id === word.id
-							) !== -1
-					);
-				if (votedPlayer) {
-					votedPlayer.points = votedPlayer.points + 10;
+		case "ActionDenied": {
+			if (playerAction.actionType === "draw") {
+				const decision = game.validateAction({player: playerAction.player, type: "draw", cardDrawn: playerAction.cardDrawn, nextPlayerTurnId: playerAction.playerTurnId})
+				if (decision) {
+					// TODO Tentar reeleição do Host
+					ipc.send({type: "push", name: "error", args: {
+						type: "abort",
+						message: "Host tentou roubar no jogo."
+					}})
+					game.connectedPlayersList.forEach((p) => {
+						sendMessage(p, {type: "Disconnect", data: {player: game.user}}, socketSendMessage)
+						disconnectPlayer(p)
+					})
+					
 				}
-			});
-			break;
-		case "PlayerReadyNextRound": {
-			const player = connectedPlayersList.get(data.player.id);
-			if (player) {
-				player.readyNextRound = true;
-				tryStartNextRound();
+			} else if (playerAction.actionType === "playCard") {
+				const decision = game.validateAction({player: playerAction.player, type: "play", card: playerAction.cardPlayed, nextPlayerTurnId: playerAction.playerTurnId, selectedColor: playerAction.selectedColor})
+				if (decision) {
+					// TODO Tentar reeleição do Host
+					ipc.send({type: "push", name: "error", args: {
+						type: "abort",
+						message: "Host tentou roubar no jogo."
+					}})
+					game.connectedPlayersList.forEach((p) => {
+						sendMessage(p, {type: "Disconnect", data: {player: game.user}}, socketSendMessage)
+						disconnectPlayer(p)
+					})
+					
+				}
 			}
-			break;
+			break
 		}
-		case "PlayerCancelReadyNextRound": {
-			const player = connectedPlayersList.get(data.player.id);
-			if (player) {
-				player.readyNextRound = false;
+		case "ActionDecision": {
+			if(game.connectedPlayersList.has(data.player.id)){
+				const player = game.connectedPlayersList.get(data.player.id)
+				game.connectedPlayersList.set({...player,
+				actionDecision: data.doesPass ? "pass" : "notPass"}
+				)
+				let didEveryoneChoose = true
+				let doesPass = 0
+				game.connectedPlayersList.forEach((p: ServerSidePlayer) => {
+					if(p.actionDecision === "null") {
+						didEveryoneChoose = false
+					} 
+					if(p.actionDecision === "pass"){
+						doesPass++
+					}
+				})
+				if (didEveryoneChoose && (doesPass >= (game.connectedPlayersList.size / 2))) {
+					game.connectedPlayersList.forEach((p: ServerSidePlayer) => {
+						if(p.id !== game.user.id){
+							sendMessage(p,{type: "ActionPassed", data: {
+								actionType: playerAction.actionType,
+								cardDrawn: playerAction.cardDrawn,
+								playerTurnId: playerAction.playerTurnId,
+								cardPlayed: playerAction.cardPlayed,
+								selectedColor: playerAction.selectedColor
+							}},socketSendMessage)
+						}
+
+					})
+				} else {
+					game.connectedPlayersList.forEach((p: ServerSidePlayer) => {
+						if(p.id !== game.user.id){
+							sendMessage(p,{type: "ActionDenied", data: {
+								actionType: playerAction.actionType,
+								playerTurnId: game.game.playerTurnId,
+							}},socketSendMessage)
+						}})
+				}
 			}
-			break;
+			break
+		}
+		case "StartGame": {
+			game.startGame(data.players, {...data})
+			ipc.send({type: "push", name:"startGame", args: {
+				players: data.players,
+				starterPlayerTurnId: data.playerTurnId,
+				starterPlayedCard: data.playedCard,
+				starterColor: data.selectedColor
+			}})
+			break
+		}
+		case "EndGame":{
+			break
 		}
 		case "Error": {
 			break;

@@ -16,6 +16,8 @@ export default function App() {
     const [players, setPlayers] = useState<Player[]>([])
     const [hasJoined, setHasJoined] = useState(false)
     const [starterPlayerTurnId, setStarterPlayerTurnId] = useState("")
+    const [starterColor, setStarterColor] = useState("")
+    const [starterPlayedCard, setStarterPlayedCard] = useState("")
 
     const handleReturnHome = async () => {
         await send("disconnect").catch((e) => {
@@ -43,6 +45,8 @@ export default function App() {
         starterPlayerTurnId={starterPlayerTurnId}
         starterPlayers={players}
         starterIsHost={players[players.findIndex(p => p.isUser)]?.isHost ?? false}
+        starterColor={starterColor}
+        starterPlayedCard={starterPlayedCard}
          
          />
     }
@@ -51,10 +55,13 @@ export default function App() {
             <LobbyPage
                 onBackToHome={() => {
                     handleReturnHome()}}
-                onStartGame={(currPlayers, starterTurn) => {
+                onStartGame={(currPlayers, starterTurn, starterColor, starterPlayedCard) => {
                     setPlayers(currPlayers)
                     setStarterPlayerTurnId(starterTurn)
+                    setStarterColor(starterColor)
+                    setStarterPlayedCard(starterPlayedCard)
                     setCurrPage('game')
+                    
                     
                 }
 

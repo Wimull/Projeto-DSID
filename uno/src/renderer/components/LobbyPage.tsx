@@ -42,12 +42,14 @@ export default function LobbyPage({
         const data: {
             players: Player[]
             starterPlayerTurnId: string,
+            starterPlayedCard: string,
+            starterColor: string
         } = await send("startGame", {}).catch((e) => {
             alert("Um erro aconteceu ao tentar iniciar o jogo: " + e.message)
             setLoading(false)
         })
         setLoading(false)
-        onStartGame(data.players, data.starterPlayerTurnId)
+        onStartGame(data.players, data.starterPlayerTurnId, data.starterColor, data.starterPlayedCard)
 
     }
 
@@ -85,24 +87,29 @@ isUser: true,
             ])
             setLoading(false)
         } else {
-            const data: {players: Player[]} = await send("connectToLobby", {
+            const data: {} = await send("connectToLobby", {
                 ip: lobbyIP,
                 playerName
             }).catch((e) => {
                 alert("Um erro aconteceu ao tentar entrar no lobby: " + e.message)
                 setLoading(false)
             })
-            setLoading(false)
-            setConnectedPlayers(data.players)
         }
     }
 
     useEffect(() => {
+        listen("acceptConnect", (data: {players: Player[]}) => {
+            setConnectedPlayers(data.players)
+            setLoading(false)
+        })
+
         listen("startGame", (data: {
             players: Player[]
-            starterPlayerTurnId: string
+            starterPlayerTurnId: string,
+            starterPlayedCard: string,
+            starterColor: string
         }) => 
-        onStartGame(data.players, data.starterPlayerTurnId)
+        onStartGame(data.players, data.starterPlayerTurnId, data.starterColor, data.starterPlayedCard)
         )
         listen("changeIsReady", (data: {
             playerId: string,
@@ -141,7 +148,14 @@ isUser: true,
         } | {
             type: "error"
             message: string
+        } | {
+            type: "cantConnect",
+            message: string
         }) => {
+            if (data.type === "cantConnect") {
+                alert("Um erro aconteceu ao tentar entrar no lobby: " + data.message)
+                setLoading(false)
+            }
             if (data.type === "disconnect") {
                 setOtherPlayers(players => {
                     const newPlayers = [...players]
