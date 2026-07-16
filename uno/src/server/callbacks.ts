@@ -322,7 +322,13 @@ export function onMessage(
                     args: {
                         playerId: playerAction.player.clientFakeId,
                         playedCard: newGame.playedCard,
-                        playerHand: playerAction.player.hand,
+                        playerHand: playerAction.player.hand.map((c) => ({
+                            id: c.id,
+                            card:
+                                playerAction.player.id === game.user.id
+                                    ? c.card
+                                    : 'back',
+                        })),
                         playerTurnId: playerAction.playerTurnId,
                         selectedColor: newGame.selectedColor,
                         isVictory: playerAction.player.hand.length === 0,
@@ -353,7 +359,10 @@ export function onMessage(
                         args: {
                             playerId: p.clientFakeId,
                             playedCard: newGame.playedCard,
-                            playerHand: p.hand,
+                            playerHand: p.hand.map((c) => ({
+                                id: c.id,
+                                card: p.id === game.user.id ? c.card : 'back',
+                            })),
                             playerTurnId: playerAction.playerTurnId,
                             //@ts-ignore
                             selectedColor: playerAction.selectedColor,
@@ -528,7 +537,13 @@ export function onMessage(
                 type: 'push',
                 name: 'startGame',
                 args: {
-                    players: data.players,
+                    players: data.players.map((p) => ({
+                        ...p,
+                        hand: p.hand.map((c) => ({
+                            id: c.id,
+                            card: p.id === game.user.id ? c.card : 'back',
+                        })),
+                    })),
                     starterPlayerTurnId: data.playerTurnId,
                     starterPlayedCard: data.playedCard,
                     starterColor: data.selectedColor,
