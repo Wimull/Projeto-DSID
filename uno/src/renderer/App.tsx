@@ -18,6 +18,7 @@ export default function App() {
     const [starterPlayerTurnId, setStarterPlayerTurnId] = useState('')
     const [starterColor, setStarterColor] = useState('')
     const [starterPlayedCard, setStarterPlayedCard] = useState('')
+    const [userPort, setUserPort] = useState('')
 
     const handleReturnHome = async () => {
         await send('disconnect', {}).catch((e) => {
@@ -83,6 +84,8 @@ export default function App() {
                 }
                 lobbyIP={lobbyAddress}
                 starterHasJoined={hasJoined}
+                port={userPort}
+                onPortChange={setUserPort}
             />
         )
     }

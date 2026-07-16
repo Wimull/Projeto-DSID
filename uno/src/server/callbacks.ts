@@ -269,6 +269,7 @@ export function onMessage(
                         type: 'push',
                         name: 'acceptConnect',
                         args: {
+                            port: PORT,
                             players: data.players.map((p) => ({
                                 name: p.name,
                                 hand: p.hand,

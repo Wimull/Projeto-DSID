@@ -16,6 +16,8 @@ type LobbyPageProps = {
     starterPlayerId: string
     lobbyIP: string
     starterHasJoined: boolean
+    port: string
+    onPortChange: (v: string) => void
 }
 
 export default function LobbyPage({
@@ -27,9 +29,10 @@ export default function LobbyPage({
     starterPlayerId,
     starterPlayerName,
     starterHasJoined,
+    port,
+    onPortChange,
 }: LobbyPageProps) {
     const [loading, setLoading] = useState(false)
-    const [port, setPort] = useState('')
     const [playerName, setPlayerName] = useState(starterPlayerName)
     const [playerId, setPlayerId] = useState(starterPlayerId)
     const [hasJoined, setHasJoined] = useState(starterHasJoined)
@@ -89,6 +92,7 @@ export default function LobbyPage({
                 alert('Um erro aconteceu ao tentar criar a sala: ' + e.message)
                 setLoading(false)
             })
+            onPortChange(data.port)
             setConnectedPlayers([
                 {
                     name: playerName,
@@ -114,8 +118,9 @@ export default function LobbyPage({
     }
 
     useEffect(() => {
-        listen('acceptConnect', (data: { players: Player[] }) => {
+        listen('acceptConnect', (data: { players: Player[]; port: string }) => {
             setConnectedPlayers(data.players)
+            onPortChange(data.port)
             setLoading(false)
         })
 
@@ -345,6 +350,16 @@ export default function LobbyPage({
                                     </div>
 
                                     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                                        {isHost && port && (
+                                            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
+                                                <p className="text-sm font-semibold text-amber-700">
+                                                    Porta do lobby
+                                                </p>
+                                                <p className="mt-1 font-mono text-lg font-semibold text-slate-800">
+                                                    {port}
+                                                </p>
+                                            </div>
+                                        )}
                                         <div className="flex items-center justify-between">
                                             <h3 className="text-lg font-semibold text-slate-800">
                                                 Jogadores
