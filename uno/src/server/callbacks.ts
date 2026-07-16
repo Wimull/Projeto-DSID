@@ -17,10 +17,9 @@ type SocketSendMessage = (
     address: string
 ) => void
 
-function sendMessage(
+export function sendMessage(
     player: ServerSidePlayer,
-    message: Omit<Message, 'messageNum'>,
-    socketSendMessage: SocketSendMessage
+    message: Omit<Message, 'messageNum'>
 ) {
     const messageNum =
         player.messagesSentWithoutACK[player.messagesSentWithoutACK.length - 1]
@@ -50,7 +49,7 @@ function sendMessage(
     send(resendTimeout, messageNum)
 }
 
-function disconnectPlayer(player: ServerSidePlayer) {
+export function disconnectPlayer(player: ServerSidePlayer) {
     clearTimeout(player.timeoutKeepAlive)
     clearTimeout(player.timeoutEndConnection)
     player.messagesSentWithoutACK.forEach((m) => clearTimeout(m.timeout))
@@ -125,42 +124,34 @@ export function onMessage(
         case 'TryConnect': {
             if (game.game.players.length < 4) {
                 game.connectPlayer(data.player)
-                sendMessage(
-                    data.player,
-                    {
-                        type: 'ConnectionAccepted',
-                        data: {
-                            player: game.user,
-                            players: Array.from(
-                                game.connectedPlayersList,
-                                ([k, v]) => v
-                            ),
-                        },
+                sendMessage(data.player, {
+                    type: 'ConnectionAccepted',
+                    data: {
+                        player: game.user,
+                        players: Array.from(
+                            game.connectedPlayersList,
+                            ([k, v]) => v
+                        ),
                     },
-                    socketSendMessage
-                )
+                })
             } else {
-                sendMessage(
-                    data.player,
-                    {
-                        type: 'ConnectionDenied',
-                        data: {
-                            player: data.player,
-                        },
+                sendMessage(data.player, {
+                    type: 'ConnectionDenied',
+                    data: {
+                        player: data.player,
                     },
-                    socketSendMessage
-                )
+                })
             }
             break
         }
         case 'ConnectionAccepted': {
             data.players.forEach((p: ServerSidePlayer) => {
-                connect(p.port, p.address).then(() => {
-                    sendMessage(
-                        p,
-                        { type: 'Connect', data: { player: game.user } },
-                        socketSendMessage
-                    )
+                connect(p.port, p.address).then((success) => {
+                    if (!success) return
+                    sendMessage(p, {
+                        type: 'Connect',
+                        data: { player: game.user },
+                    })
                     ipc.send({
                         type: 'push',
                         name: 'acceptConnect',
@@ -265,6 +256,12 @@ export function onMessage(
                 game.connectedPlayersList,
                 ([key, value]) => value
             ).find((p) => p.isHost)!
+            if (game.user.isHost) {
+                game.connectedPlayersList.forEach((p) => {
+                    p.actionDecision = 'null'
+                })
+            }
+
             if (data.actionType === 'draw') {
                 const decision = game.validateAction({
                     player: data.player,
@@ -272,17 +269,13 @@ export function onMessage(
                     cardDrawn: data.cardDrawn,
                     nextPlayerTurnId: data.playerTurnId,
                 })
-                sendMessage(
-                    host,
-                    {
-                        type: 'ActionDecision',
-                        data: {
-                            player: game.user,
-                            doesPass: decision,
-                        },
+                sendMessage(host, {
+                    type: 'ActionDecision',
+                    data: {
+                        player: game.user,
+                        doesPass: decision,
                     },
-                    socketSendMessage
-                )
+                })
             } else if (data.actionType === 'playCard') {
                 const decision = game.validateAction({
                     player: data.player,
@@ -291,17 +284,13 @@ export function onMessage(
                     nextPlayerTurnId: data.playerTurnId,
                     selectedColor: data.selectedColor,
                 })
-                sendMessage(
-                    host,
-                    {
-                        type: 'ActionDecision',
-                        data: {
-                            player: game.user,
-                            doesPass: decision,
-                        },
+                sendMessage(host, {
+                    type: 'ActionDecision',
+                    data: {
+                        player: game.user,
+                        doesPass: decision,
                     },
-                    socketSendMessage
-                )
+                })
             }
             break
         }
@@ -383,11 +372,11 @@ export function onMessage(
                     },
                 })
                 game.connectedPlayersList.forEach((p) => {
-                    sendMessage(
-                        p,
-                        { type: 'Disconnect', data: { player: game.user } },
-                        socketSendMessage
-                    )
+                    if (p.id === game.user.id) return
+                    sendMessage(p, {
+                        type: 'Disconnect',
+                        data: { player: game.user },
+                    })
                     disconnectPlayer(p)
                 })
             }
@@ -412,11 +401,11 @@ export function onMessage(
                         },
                     })
                     game.connectedPlayersList.forEach((p) => {
-                        sendMessage(
-                            p,
-                            { type: 'Disconnect', data: { player: game.user } },
-                            socketSendMessage
-                        )
+                        if (p.id === game.user.id) return
+                        sendMessage(p, {
+                            type: 'Disconnect',
+                            data: { player: game.user },
+                        })
                         disconnectPlayer(p)
                     })
                 }
@@ -448,11 +437,11 @@ export function onMessage(
                         },
                     })
                     game.connectedPlayersList.forEach((p) => {
-                        sendMessage(
-                            p,
-                            { type: 'Disconnect', data: { player: game.user } },
-                            socketSendMessage
-                        )
+                        if (p.id === game.user.id) return
+                        sendMessage(p, {
+                            type: 'Disconnect',
+                            data: { player: game.user },
+                        })
                         disconnectPlayer(p)
                     })
                 }
@@ -482,49 +471,41 @@ export function onMessage(
                 ) {
                     game.connectedPlayersList.forEach((p: ServerSidePlayer) => {
                         if (p.id !== game.user.id) {
-                            sendMessage(
-                                p,
-                                {
-                                    type: 'ActionPassed',
-                                    data: {
-                                        player: game.user,
+                            sendMessage(p, {
+                                type: 'ActionPassed',
+                                data: {
+                                    player: game.user,
 
-                                        actionType: playerAction.actionType,
+                                    actionType: playerAction.actionType,
+                                    //@ts-ignore
+
+                                    cardDrawn: playerAction.cardDrawn,
+                                    //@ts-ignore
+
+                                    playerTurnId: playerAction.playerTurnId,
+                                    //@ts-ignore
+
+                                    cardPlayed: playerAction.cardPlayed,
+                                    selectedColor:
                                         //@ts-ignore
 
-                                        cardDrawn: playerAction.cardDrawn,
-                                        //@ts-ignore
-
-                                        playerTurnId: playerAction.playerTurnId,
-                                        //@ts-ignore
-
-                                        cardPlayed: playerAction.cardPlayed,
-                                        selectedColor:
-                                            //@ts-ignore
-
-                                            playerAction.selectedColor,
-                                    },
+                                        playerAction.selectedColor,
                                 },
-                                socketSendMessage
-                            )
+                            })
                         }
                     })
                 } else {
                     game.connectedPlayersList.forEach((p: ServerSidePlayer) => {
                         if (p.id !== game.user.id) {
-                            sendMessage(
-                                p,
-                                {
-                                    type: 'ActionDenied',
-                                    data: {
-                                        player: game.user,
+                            sendMessage(p, {
+                                type: 'ActionDenied',
+                                data: {
+                                    player: game.user,
 
-                                        actionType: playerAction.actionType,
-                                        playerTurnId: game.game.playerTurnId,
-                                    },
+                                    actionType: playerAction.actionType,
+                                    playerTurnId: game.game.playerTurnId,
                                 },
-                                socketSendMessage
-                            )
+                            })
                         }
                     })
                 }
@@ -575,12 +556,7 @@ export function onMessage(
     }
 }
 
-export function onClientError(
-    err: Error,
-    address: string,
-    port: number,
-    socketSendMessage: SocketSendMessage
-) {
+export function onClientError(err: Error, address: string, port: number) {
     console.error(`client error:\n${err.stack}`)
     let player: ServerSidePlayer | undefined = undefined
     game.connectedPlayersList.forEach((receivingPlayer) => {

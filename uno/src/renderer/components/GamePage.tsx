@@ -96,9 +96,6 @@ export default function GamePage({
                 }).catch((e) => {
                     alert('Um erro aconteceu: ' + e.message)
                 })
-            setHand(data.playerHand)
-            setCurrentPlayerTurnId(data.turnPlayerID)
-            setLoading(false)
             return
         }
 
@@ -113,17 +110,6 @@ export default function GamePage({
         }).catch((e: Error) => {
             alert('Um erro aconteceu: ' + e.message)
         })
-        setHand(data.playerHand)
-        setCurrentPlayerTurnId(data.turnPlayerID)
-        if (data.isVictory) {
-            setGameResult({ type: 'victory', winnerName: 'Você' })
-        }
-
-        setLoading(false)
-        setSelectedCard(null)
-        setPlayedColor(selectedColor)
-        setSelectedColor(null)
-        setShowColorPicker(false)
     }
 
     const handleReturnToLobby = () => {
@@ -181,7 +167,7 @@ export default function GamePage({
                 }
                 if (data.isVictory) {
                     setGameResult({
-                        type: 'defeat',
+                        type: hand.length === 0 ? 'victory' : 'defeat',
                         winnerName: data.victoriousPlayerName,
                     })
                 }

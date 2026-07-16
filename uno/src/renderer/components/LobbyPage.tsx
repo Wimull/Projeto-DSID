@@ -85,7 +85,7 @@ export default function LobbyPage({
             const data: {
                 playerId: string
                 port: string
-            } = await send('createLobby', {}).catch((e) => {
+            } = await send('createLobby', { playerName }).catch((e) => {
                 alert('Um erro aconteceu ao tentar criar a sala: ' + e.message)
                 setLoading(false)
             })

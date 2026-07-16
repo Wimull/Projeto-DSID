@@ -42,8 +42,8 @@ export function connect(port: number, address: string) {
         console.log('Connected to ' + address + ':' + port)
 
         client.connect(port, address, () => {
-            resolve(true)
             connections.set(`${address}:${port}`, client)
+            resolve(true)
         })
         client.on('data', (data) => {
             console.log('message received')
@@ -73,9 +73,10 @@ export function connect(port: number, address: string) {
 
         // Handle errors
         client.on('error', (err) => {
-            onClientError(err, address, port, sendMessage)
+            onClientError(err, address, port)
             connections.delete(`${address}:${port}`)
             client.end()
+            resolve(false)
         })
     })
     return isConnected
@@ -100,21 +101,25 @@ server.on('connection', (connectionSocket) => {
         )
     })
     connectionSocket.on('error', (err) => {
-        onClientError(err, id, 0, sendMessage)
+        onClientError(
+            err,
+            connectionSocket.localAddress || '',
+            connectionSocket.localPort || 0
+        )
         ipc.send({
             name: 'error',
             type: 'push',
             args: { data: { type: 'error', message: err.stack } },
         })
         connections.delete(
-            `${connectionSocket.localAddress}:${connectionSocket.localPort}`
+            `${connectionSocket.localAddress || ''}:${connectionSocket.localPort || 0}`
         )
         connectionSocket.end()
     })
 
     connectionSocket.on('end', () => {
         connections.delete(
-            `${connectionSocket.localAddress}:${connectionSocket.localPort}`
+            `${connectionSocket.localAddress || ''}:${connectionSocket.localPort || 0}`
         )
         ipc.send({
             type: 'push',
