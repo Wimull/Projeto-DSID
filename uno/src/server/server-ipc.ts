@@ -52,11 +52,8 @@ function init(
     ipc.server.start()
 }
 
-function send(name: string, args: any[]) {
-    ipc.server.broadcast(
-        'message',
-        JSON.stringify({ type: 'push', name, args })
-    )
+function send(message: { type: string; name: string; args: any }) {
+    ipc.server.broadcast('message', JSON.stringify(message))
 }
 
 export default { init, send }

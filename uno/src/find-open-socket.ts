@@ -1,13 +1,13 @@
 import ipcModule from 'node-ipc'
 
-const ipc =
+const ipc: typeof ipcModule =
     ipcModule && typeof ipcModule === 'object' && 'default' in ipcModule
-        ? ipcModule.default
+        ? (ipcModule.default as typeof ipcModule)
         : ipcModule
 
 ipc.config.silent = true
 
-function isSocketTaken(name, fn) {
+function isSocketTaken(name: string, fn?: () => void) {
     return new Promise((resolve, reject) => {
         ipc.connectTo(name, () => {
             ipc.of[name].on('error', () => {

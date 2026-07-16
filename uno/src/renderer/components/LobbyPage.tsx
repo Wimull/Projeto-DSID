@@ -1,10 +1,15 @@
-import React, { useMemo, useState } from 'react'
-import {type Player} from "./GamePage"
+import React, { useEffect, useMemo, useState } from 'react'
+import { type Player } from './GamePage'
 
 const cardAssets = ['/red0.png', '/blue0.png', '/yellow0.png', '/green0.png']
 type LobbyPageProps = {
     onBackToHome: () => void
-    onStartGame: (players: Player[], starterPlayerTurnId: string) => void
+    onStartGame: (
+        players: Player[],
+        starterPlayerTurnId: string,
+        starterColor: string,
+        starterPlayedCard: string
+    ) => void
     createdLobby: boolean
     starterPlayers: Player[]
     starterPlayerName: string
@@ -20,43 +25,51 @@ export default function LobbyPage({
     starterPlayers,
     lobbyIP,
     starterPlayerId,
-    starterPlayerName
-
+    starterPlayerName,
+    starterHasJoined,
 }: LobbyPageProps) {
     const [loading, setLoading] = useState(false)
-    const [port, setPort] = useState("")
+    const [port, setPort] = useState('')
     const [playerName, setPlayerName] = useState(starterPlayerName)
     const [playerId, setPlayerId] = useState(starterPlayerId)
     const [hasJoined, setHasJoined] = useState(starterHasJoined)
     const [isReady, setIsReady] = useState(false)
-    const [connectedPlayers, setConnectedPlayers] = useState<Player[]>(starterPlayers)
+    const [connectedPlayers, setConnectedPlayers] =
+        useState<Player[]>(starterPlayers)
 
-    
     const allPlayersReady =
-    connectedPlayers.length > 0 &&
-    connectedPlayers.every((player) => player.isReady)
-    const isHost = connectedPlayers[connectedPlayers.findIndex(p => p.isUser)]?.isHost ?? createdLobby
-    
+        connectedPlayers.length > 0 &&
+        connectedPlayers.every((player) => player.isReady)
+    const isHost =
+        connectedPlayers[connectedPlayers.findIndex((p) => p.isUser)]?.isHost ??
+        createdLobby
+
     const handleStartGame = async () => {
         setLoading(true)
         const data: {
             players: Player[]
-            starterPlayerTurnId: string,
-            starterPlayedCard: string,
+            starterPlayerTurnId: string
+            starterPlayedCard: string
             starterColor: string
-        } = await send("startGame", {}).catch((e) => {
-            alert("Um erro aconteceu ao tentar iniciar o jogo: " + e.message)
+        } = await send('startGame', {}).catch((e) => {
+            alert('Um erro aconteceu ao tentar iniciar o jogo: ' + e.message)
             setLoading(false)
         })
         setLoading(false)
-        onStartGame(data.players, data.starterPlayerTurnId, data.starterColor, data.starterPlayedCard)
-
+        onStartGame(
+            data.players,
+            data.starterPlayerTurnId,
+            data.starterColor,
+            data.starterPlayedCard
+        )
     }
 
     const handleChangeIsReady = async () => {
         setLoading(true)
-        const data: {isReady} = await send("changeIsReady", {isReady}).catch((e) => {
-            alert("Um erro aconteceu: " + e.message)
+        const data: { isReady: boolean } = await send('changeIsReady', {
+            isReady,
+        }).catch((e) => {
+            alert('Um erro aconteceu: ' + e.message)
             setLoading(false)
         })
         setLoading(false)
@@ -66,142 +79,160 @@ export default function LobbyPage({
     const handleContinue = async () => {
         if (playerName.trim()) {
             setHasJoined(true)
-        } 
+        }
         setLoading(true)
         if (createdLobby) {
             const data: {
-                playerId: string,
+                playerId: string
                 port: string
-            } = send("createLobby", {}).catch((e) => {
-                alert("Um erro aconteceu ao tentar criar a sala: " + e.message)
+            } = await send('createLobby', {}).catch((e) => {
+                alert('Um erro aconteceu ao tentar criar a sala: ' + e.message)
                 setLoading(false)
             })
-            setConnectedPlayers([{
-                 name: playerName,
- id: data.playerId,
-hand: [],
-isHost: true,
-isUser: true,
-  isReady: false,
-            }
+            setConnectedPlayers([
+                {
+                    name: playerName,
+                    id: data.playerId,
+                    hand: [],
+                    isHost: true,
+                    isUser: true,
+                    isReady: false,
+                },
             ])
             setLoading(false)
         } else {
-            const data: {} = await send("connectToLobby", {
+            const data: any = await send('connectToLobby', {
                 ip: lobbyIP,
-                playerName
+                playerName,
             }).catch((e) => {
-                alert("Um erro aconteceu ao tentar entrar no lobby: " + e.message)
+                alert(
+                    'Um erro aconteceu ao tentar entrar no lobby: ' + e.message
+                )
                 setLoading(false)
             })
         }
     }
 
     useEffect(() => {
-        listen("acceptConnect", (data: {players: Player[]}) => {
+        listen('acceptConnect', (data: { players: Player[] }) => {
             setConnectedPlayers(data.players)
             setLoading(false)
         })
 
-        listen("startGame", (data: {
-            players: Player[]
-            starterPlayerTurnId: string,
-            starterPlayedCard: string,
-            starterColor: string
-        }) => 
-        onStartGame(data.players, data.starterPlayerTurnId, data.starterColor, data.starterPlayedCard)
+        listen(
+            'startGame',
+            (data: {
+                players: Player[]
+                starterPlayerTurnId: string
+                starterPlayedCard: string
+                starterColor: string
+            }) =>
+                onStartGame(
+                    data.players,
+                    data.starterPlayerTurnId,
+                    data.starterColor,
+                    data.starterPlayedCard
+                )
         )
-        listen("changeIsReady", (data: {
-            playerId: string,
-            isReady: boolean,
-        }) => {
-            setConnectedPlayers(players => {
-                const newPlayers = [...players]
-                newPlayers[newPlayers.findIndex(p => p.id === data.playerId)]?.isReady = data.isReady 
-            })
-        })
-        listen("connect", (data: {
-            playerId: string,
-            playerName: string,
-        }) => {
-            setConnectedPlayers(players => {
+        listen(
+            'changeIsReady',
+            (data: { playerId: string; isReady: boolean }) => {
+                setConnectedPlayers((players) => {
+                    const newPlayers = [...players]
+                    newPlayers[
+                        newPlayers.findIndex((p) => p.id === data.playerId)
+                    ]!.isReady = data.isReady
+                    return newPlayers
+                })
+            }
+        )
+        listen('connect', (data: { playerId: string; playerName: string }) => {
+            setConnectedPlayers((players) => {
                 const newPlayers = [...players]
                 newPlayers.push({
                     name: data.playerName,
                     id: data.playerId,
-                   hand: [],
-                   isHost: false,
-                   isUser: false,
-                     isReady: false,
+                    hand: [],
+                    isHost: false,
+                    isUser: false,
+                    isReady: false,
                 })
                 return newPlayers
             })
         })
 
-        listen("error", (data: {
-            type: "disconnect"
-            playerId: string,
-            playerTurnId: string,
-        } | {
-            type: "abort"
-            message: string
-        } | {
-            type: "error"
-            message: string
-        } | {
-            type: "cantConnect",
-            message: string
-        }) => {
-            if (data.type === "cantConnect") {
-                alert("Um erro aconteceu ao tentar entrar no lobby: " + data.message)
-                setLoading(false)
-            }
-            if (data.type === "disconnect") {
-                setOtherPlayers(players => {
-                    const newPlayers = [...players]
-                    newPlayers = newPlayers.filter(p => p.id !== data.playerId)
-                    return newPlayers
-                })
-                setCurrentPlayerTurnId(data.playerTurnId)
-            }
-            if (data.type === "abort") {
-                alert("Partida abortada. Razão: " + data.message)
-                onReturnHome()
-            }
-            if (data.type === "error"){
-                alert("Um erro aconteceu: " + data.message)
-            }
-
-        })
-
-        listen("changeHost", (data: {playerId: string}) => {
-            if (playerId === data.playerId) setIsHost(true) 
-            else {
-        setIsHost(false)
-        setOtherPlayers(players => {
-            const newPlayers = [...players]
-            return newPlayers.map(p => {
-                if(p.id === data.playerId){
-                    return ({
-                        ...p,
-                        isHost: true
+        listen(
+            'error',
+            (
+                data:
+                    | {
+                          type: 'disconnect'
+                          playerId: string
+                          playerTurnId: string
+                      }
+                    | {
+                          type: 'abort'
+                          message: string
+                      }
+                    | {
+                          type: 'error'
+                          message: string
+                      }
+                    | {
+                          type: 'cantConnect'
+                          message: string
+                      }
+            ) => {
+                if (data.type === 'cantConnect') {
+                    alert(
+                        'Um erro aconteceu ao tentar entrar no lobby: ' +
+                            data.message
+                    )
+                    setLoading(false)
+                }
+                if (data.type === 'disconnect') {
+                    setConnectedPlayers((players) => {
+                        let newPlayers = [...players]
+                        newPlayers = newPlayers.filter(
+                            (p) => p.id !== data.playerId
+                        )
+                        return newPlayers
                     })
-                } 
-                return ({
-                    ...p,
-                    isHost: false
+                }
+                if (data.type === 'abort') {
+                    alert('Partida abortada. Razão: ' + data.message)
+                    onBackToHome()
+                }
+                if (data.type === 'error') {
+                    alert('Um erro aconteceu: ' + data.message)
+                }
+            }
+        )
+
+        listen('changeHost', (data: { playerId: string }) => {
+            setConnectedPlayers((players) => {
+                const newPlayers = [...players]
+                return newPlayers.map((p) => {
+                    if (p.id === data.playerId) {
+                        return {
+                            ...p,
+                            isHost: true,
+                        }
+                    }
+                    return {
+                        ...p,
+                        isHost: false,
+                    }
                 })
             })
         })
-    }
-        })
 
         return () => {
-            unlisten("startGame")
-            unlisten("changeIsReady")
-            unlisten("connect")
-            unlisten("error")
-            unlisten("changeHost")
+            unlisten('startGame')
+            unlisten('changeIsReady')
+            unlisten('connect')
+            unlisten('error')
+            unlisten('changeHost')
         }
     }, [])
 
@@ -287,7 +318,7 @@ isUser: true,
                                         onClick={handleContinue}
                                         disabled={loading}
                                     >
-                                        {loading ? "Aguardando" : "Continuar"}
+                                        {loading ? 'Aguardando' : 'Continuar'}
                                     </button>
 
                                     <button
@@ -296,7 +327,9 @@ isUser: true,
                                         onClick={onBackToHome}
                                         disabled={loading}
                                     >
-                                        {loading ? "Aguardando" : "Voltar para a tela inicial"}
+                                        {loading
+                                            ? 'Aguardando'
+                                            : 'Voltar para a tela inicial'}
                                     </button>
                                 </div>
                             ) : (
@@ -344,7 +377,9 @@ isUser: true,
                                                         </span>
                                                     </div>
                                                     <span className="text-sm text-slate-500">
-                                                        {player.isHost ? "Host" : "Jogador"}
+                                                        {player.isHost
+                                                            ? 'Host'
+                                                            : 'Jogador'}
                                                     </span>
                                                 </li>
                                             ))}
@@ -359,14 +394,19 @@ isUser: true,
                                                 : 'cursor-not-allowed bg-slate-400'
                                         }`}
                                         onClick={handleStartGame}
-                                        disabled={!isHost || !allPlayersReady || loading}
+                                        disabled={
+                                            !isHost ||
+                                            !allPlayersReady ||
+                                            loading
+                                        }
                                     >
                                         {!isHost
                                             ? 'Aguardando o host iniciar a partida'
-                                            : loading ? "Aguardando" : allPlayersReady
+                                            : loading
+                                              ? 'Aguardando'
+                                              : allPlayersReady
                                                 ? 'Iniciar partida'
-                                                : 'Aguardando jogadores ficarem prontos'
-                                            }
+                                                : 'Aguardando jogadores ficarem prontos'}
                                     </button>
 
                                     <button
@@ -376,14 +416,14 @@ isUser: true,
                                                 ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                                                 : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
                                         }`}
-                                        onClick={() =>
-                                            handleChangeIsReady()
-                                        }
+                                        onClick={() => handleChangeIsReady()}
                                         disabled={loading}
                                     >
-                                        {loading ? "Aguardando" : isReady
-                                            ? 'Pronto ✓'
-                                            : 'Marcar como pronto'}
+                                        {loading
+                                            ? 'Aguardando'
+                                            : isReady
+                                              ? 'Pronto ✓'
+                                              : 'Marcar como pronto'}
                                     </button>
 
                                     <button
@@ -391,8 +431,10 @@ isUser: true,
                                         className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-100"
                                         onClick={onBackToHome}
                                         disabled={loading}
-                                        >
-                                            {loading ? "Aguardando" : "Voltar para a tela inicial"} 
+                                    >
+                                        {loading
+                                            ? 'Aguardando'
+                                            : 'Voltar para a tela inicial'}
                                     </button>
                                 </div>
                             )}

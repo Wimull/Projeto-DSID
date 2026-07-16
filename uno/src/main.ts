@@ -48,7 +48,7 @@ const createWindow = (socketName = serverSocket) => {
     })
 }
 
-function createBackgroundWindow(socketName: string, show: boolean = false) {
+function createBackgroundWindow(socketName: string, show = false) {
     const win = new BrowserWindow({
         x: 500,
         y: 300,
