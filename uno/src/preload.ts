@@ -33,9 +33,12 @@ contextBridge.exposeInMainWorld(
         ipc.config.silent = true
         ipc.connectTo(id, () => {
             func(ipc.of[id], (cbs) => {
-                cbs.forEach((...args: any[]) => {
-                    //@ts-ignore
-                    ipc.of[id].on(...args)
+                // cbs.forEach((...args: any[]) => {
+                //     //@ts-ignore
+                //     ipc.of[id].on(...args)
+                
+                cbs.forEach(([eventType, handler]: [string, (...args: any[]) => void]) => {
+                    ipc.of[id].on(eventType, handler)
                 })
             })
         })
