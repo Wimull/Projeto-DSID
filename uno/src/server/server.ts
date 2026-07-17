@@ -2,7 +2,7 @@
 
 import serverHandlers from './server-handlers'
 import ipc from './server-ipc'
-import net from 'node:net'
+import net from 'net'
 
 import * as game from './game'
 
@@ -10,7 +10,7 @@ import { onClientError, onMessage, startLeaderElection } from './callbacks'
 // eslint-disable-next-line import/no-unresolved
 import { v4 as uuid } from 'uuid'
 
-export const PORT = Math.round(Math.random() * 1000)
+export const PORT = Math.round(Math.random() * 10000)
 
 let isDev, version
 
@@ -23,8 +23,7 @@ if (process.argv[2] === '--subprocess') {
     isDev = true
 }
 
-console.log(isDev)
-
+console.log(net.createServer)
 export const connections: Map<string, net.Socket> = new Map([])
 
 export function sendMessage(data: string, port: number, address: string) {

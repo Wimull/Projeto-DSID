@@ -21,9 +21,11 @@ export default function App() {
     const [userPort, setUserPort] = useState('')
 
     const handleReturnHome = async () => {
-        await send('disconnect', {}).catch((e) => {
-            alert('Erro ao tentar voltar para a tela inicial: ' + e.message)
-        })
+        if (hasJoined) {
+            await send('disconnect', {}).catch((e) => {
+                alert('Erro ao tentar voltar para a tela inicial: ' + e.message)
+            })
+        }
         setPlayers([])
         setHasJoined(false)
         setStarterPlayerTurnId('')

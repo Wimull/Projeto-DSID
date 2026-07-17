@@ -28,7 +28,7 @@ const createWindow = (socketName = serverSocket) => {
 
     // and load the index.html of the app.
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-        clientWin.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}/index.html`)
+        clientWin.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)
     } else {
         clientWin.loadFile(
             path.join(
@@ -57,15 +57,16 @@ function createBackgroundWindow(socketName: string, show = false) {
         show: show,
         webPreferences: {
             nodeIntegration: true,
+            preload: path.join(__dirname, '/preload.js'),
         },
     })
-    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-        win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}/server-dev.html`)
+    if (BACKGROUND_WINDOW_VITE_DEV_SERVER_URL) {
+        win.loadURL(BACKGROUND_WINDOW_VITE_DEV_SERVER_URL)
     } else {
         win.loadFile(
             path.join(
                 __dirname,
-                `../renderer/${MAIN_WINDOW_VITE_NAME}/server-dev.html`
+                `../renderer/${BACKGROUND_WINDOW_VITE_NAME}/server-dev.html`
             )
         )
     }
