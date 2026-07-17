@@ -30,7 +30,7 @@ export default function GamePage({
     starterPlayers: Player[]
     starterIsHost: boolean
     starterColor: string
-    starterPlayedCard: string
+    starterPlayedCard: Card
 }) {
     const [isHost, setIsHost] = useState(starterIsHost)
     const [loading, setLoading] = useState(false)
@@ -39,18 +39,27 @@ export default function GamePage({
     const [showColorPicker, setShowColorPicker] = useState(false)
     const [selectedColor, setSelectedColor] = useState<string | null>(null)
     const [playedColor, setPlayedColor] = useState<string | null>(starterColor)
-    const [playedCard, setPlayedCard] = useState<string>(starterPlayedCard)
+    const [playedCard, setPlayedCard] = useState<Card>(starterPlayedCard)
     const [selectedCard, setSelectedCard] = useState<Card | null>(null)
     const [gameResult, setGameResult] = useState<{
         type: 'victory' | 'defeat'
         winnerName: string
     } | null>(null)
     const [hand, setHand] = useState<Card[]>(
-        starterPlayers.find((p) => p.id === playerId)?.hand || []
+        starterPlayers.find((p) => p.isUser)?.hand || []
     )
-    const [otherPlayers, setOtherPlayers] = useState<Player[]>(starterPlayers)
+    const [otherPlayers, setOtherPlayers] = useState<Player[]>(
+        starterPlayers.filter((p) => !p.isUser)
+    )
+    console.log(
+        starterPlayerTurnId,
+        currentPlayerTurnId,
+        playerId,
+        otherPlayers
+    )
 
     function canPlayCard({ id, card }: Card): boolean {
+        if (currentPlayerTurnId !== playerId) return false
         if ((card === 'wild' || card === 'wild4') && selectedColor) {
             return true
         }
@@ -58,7 +67,7 @@ export default function GamePage({
         const cardColor = card.match(/red|blue|green|yellow/)?.[0]
         if (playedColor === cardColor) return true
 
-        const playedValue = playedCard.match(
+        const playedValue = playedCard.card.match(
             /0|1|2|3|4|5|6|7|8|9|Plus2|Reverse|Stop/
         )?.[0]
         const cardValue = card.match(
@@ -139,7 +148,7 @@ export default function GamePage({
             (
                 data: {
                     playerId: string
-                    playedCard: string
+                    playedCard: Card
                     playerHand: Card[]
                     playerTurnId: string
                     selectedColor?: string
@@ -316,7 +325,7 @@ export default function GamePage({
                                 <div className="flex flex-col items-center justify-center gap-6 py-6">
                                     <div className="relative flex items-center justify-center gap-6 rounded-[28px] border border-slate-200 bg-slate-50/90 px-6 py-8 shadow-inner sm:px-10">
                                         <div
-                                            className={`absolute top-2 text-center text-lg font-bold transition-opacity ${playedCard.startsWith('wild') ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                                            className={`absolute top-2 text-center text-lg font-bold transition-opacity ${playedCard.card.startsWith('wild') ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                                         >
                                             {playedColor === 'red' ? (
                                                 <span className="text-red-500">
@@ -356,8 +365,12 @@ export default function GamePage({
 
                                         <div>
                                             <img
-                                                src={'/' + playedCard + '.png'}
-                                                alt={playedCard}
+                                                src={
+                                                    '/' +
+                                                    playedCard.card +
+                                                    '.png'
+                                                }
+                                                alt={playedCard.card}
                                                 className="h-40 w-24 rounded-2xl object-cover shadow-lg"
                                             />
                                         </div>
@@ -497,7 +510,7 @@ export default function GamePage({
                                 <div className="flex flex-col items-center justify-center gap-6 py-6">
                                     <div className="relative flex items-center justify-center gap-6 rounded-[28px] border border-slate-200 bg-slate-50/90 px-6 py-8 shadow-inner sm:px-10">
                                         <div
-                                            className={`absolute top-2 text-center text-lg font-bold transition-opacity ${playedCard.startsWith('wild') ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                                            className={`absolute top-2 text-center text-lg font-bold transition-opacity ${playedCard.card.startsWith('wild') ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                                         >
                                             {playedColor === 'red' ? (
                                                 <span className="text-red-500">
@@ -537,8 +550,12 @@ export default function GamePage({
 
                                         <div>
                                             <img
-                                                src={'/' + playedCard + '.png'}
-                                                alt={playedCard}
+                                                src={
+                                                    '/' +
+                                                    playedCard.card +
+                                                    '.png'
+                                                }
+                                                alt={playedCard.card}
                                                 className="h-40 w-24 rounded-2xl object-cover shadow-lg"
                                             />
                                         </div>

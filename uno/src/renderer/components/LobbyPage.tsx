@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { type Player } from './GamePage'
+import { Card } from '../../server/types'
 
 const cardAssets = ['/red0.png', '/blue0.png', '/yellow0.png', '/green0.png']
 type LobbyPageProps = {
@@ -8,7 +9,7 @@ type LobbyPageProps = {
         players: Player[],
         starterPlayerTurnId: string,
         starterColor: string,
-        starterPlayedCard: string
+        starterPlayedCard: Card
     ) => void
     createdLobby: boolean
     starterPlayers: Player[]
@@ -46,13 +47,12 @@ export default function LobbyPage({
     const isHost =
         connectedPlayers[connectedPlayers.findIndex((p) => p.isUser)]?.isHost ??
         createdLobby
-
     const handleStartGame = async () => {
         setLoading(true)
         const data: {
             players: Player[]
             starterPlayerTurnId: string
-            starterPlayedCard: string
+            starterPlayedCard: Card
             starterColor: string
         } = await send('startGame', {}).catch((e) => {
             alert('Um erro aconteceu ao tentar iniciar o jogo: ' + e.message)
@@ -69,14 +69,27 @@ export default function LobbyPage({
 
     const handleChangeIsReady = async () => {
         setLoading(true)
+
         const data: { isReady: boolean } = await send('changeIsReady', {
-            isReady,
+            isReady: !isReady,
         }).catch((e) => {
             alert('Um erro aconteceu: ' + e.message)
             setLoading(false)
         })
         setLoading(false)
         setIsReady(data.isReady)
+        setConnectedPlayers((players) => {
+            let newPlayers = [...players]
+            newPlayers = newPlayers.map((p) =>
+                p.isUser
+                    ? {
+                          ...p,
+                          isReady: data.isReady,
+                      }
+                    : p
+            )
+            return newPlayers
+        })
     }
 
     const handleContinue = async () => {
@@ -129,7 +142,7 @@ export default function LobbyPage({
             (data: {
                 players: Player[]
                 starterPlayerTurnId: string
-                starterPlayedCard: string
+                starterPlayedCard: Card
                 starterColor: string
             }) =>
                 onStartGame(
@@ -216,8 +229,8 @@ export default function LobbyPage({
 
         listen('changeHost', (data: { playerId: string }) => {
             setConnectedPlayers((players) => {
-                const newPlayers = [...players]
-                return newPlayers.map((p) => {
+                let newPlayers = [...players]
+                newPlayers = newPlayers.map((p) => {
                     if (p.id === data.playerId) {
                         return {
                             ...p,
@@ -229,6 +242,8 @@ export default function LobbyPage({
                         isHost: false,
                     }
                 })
+                console.log('changeHost', players, newPlayers)
+                return newPlayers
             })
         })
 

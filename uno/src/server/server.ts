@@ -3,6 +3,7 @@
 import serverHandlers from './server-handlers'
 import ipc from './server-ipc'
 import net from 'net'
+import { networkInterfaces } from 'os'
 
 import * as game from './game'
 
@@ -10,7 +11,26 @@ import { onClientError, onMessage, startLeaderElection } from './callbacks'
 // eslint-disable-next-line import/no-unresolved
 import { v4 as uuid } from 'uuid'
 
-export const PORT = Math.round(Math.random() * 10000)
+export const SERVER_PORT = Math.round(Math.random() * 10000)
+
+const nets = networkInterfaces()
+const results = Object.create(null) // Or just '{}', an empty object
+
+for (const name of Object.keys(nets)) {
+    for (const net of nets[name]!) {
+        // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
+        // 'IPv4' is in Node <= 17, from 18 it's a number 4 or 6
+        const familyV4Value = typeof net.family === 'string' ? 'IPv4' : 4
+        if (net.family === familyV4Value && !net.internal) {
+            if (!results[name]) {
+                results[name] = []
+            }
+            results[name].push(net.address)
+        }
+    }
+}
+
+export const [SERVER_ADDRESS] = Object.values(results)[0] as string[]
 
 let isDev, version
 
@@ -18,17 +38,17 @@ if (process.argv[2] === '--subprocess') {
     isDev = false
 
     const socketName = process.argv[4]
-    ipc.init(socketName, serverHandlers(PORT) as any)
+    ipc.init(socketName, serverHandlers())
 } else {
     isDev = true
 }
 
-console.log(net.createServer)
 export const connections: Map<string, net.Socket> = new Map([])
 
-export function sendMessage(data: string, port: number, address: string) {
-    console.log(`sending message ${data} to ${address}:${port}`)
-    const socket = connections.get(`${address}:${port}`)
+export function sendMessage(data: string, id: string) {
+    const socket = connections.get(`${id}`)
+    console.log(connections)
+    console.log(`sending message ${data} to ${id}`)
     if (socket) {
         socket.write(data)
     }
@@ -37,38 +57,50 @@ const server = net.createServer()
 
 export function connect(port: number, address: string) {
     const isConnected = new Promise((resolve) => {
-        const client = new net.Socket()
-        console.log('Connected to ' + address + ':' + port)
-
-        client.connect(port, address, () => {
-            connections.set(`${address}:${port}`, client)
-            resolve(true)
+        const connectionId = uuid()
+        let hasThisConnectionBeenMade = false
+        connections.forEach((s) => {
+            if (s.remoteAddress === address && s.remotePort === port)
+                hasThisConnectionBeenMade = true
         })
+        if (hasThisConnectionBeenMade) {
+            resolve([false, connectionId])
+            return
+        }
+        const client = net.createConnection(
+            { port: port, host: address },
+            () => {
+                console.log('Connected to ' + address + ':' + port)
+                connections.set(connectionId, client)
+                resolve([true, connectionId])
+            }
+        )
         client.on('data', (data) => {
-            console.log('message received')
-            onMessage(data.toString(), address, port, sendMessage)
+            onMessage(data.toString(), connectionId, sendMessage)
         })
 
         client.on('close', () => {
             const player = Array.from(
                 game.connectedPlayersList,
                 ([k, v]) => v
-            ).find((p) => p.address === address && p.port === port)!
-            if (player.isHost) startLeaderElection()
-            game.disconnectPlayer(player.id)
-            connections.delete(`${address}:${port}`)
-            ipc.send({
-                type: 'push',
-                name: 'error',
-                args: {
-                    type: 'disconnect',
-                    playerId: Array.from(
-                        game.connectedPlayersList,
-                        ([k, v]) => v
-                    ).find((p) => p.address === address && p.port === port)!
-                        .clientFakeId,
-                },
-            })
+            ).find((p) => p.address === address && p.port === port)
+            if (player) {
+                if (player.isHost) startLeaderElection()
+                game.disconnectPlayer(player.id)
+                connections.delete(connectionId)
+                ipc.send({
+                    type: 'push',
+                    name: 'error',
+                    args: {
+                        type: 'disconnect',
+                        playerId: Array.from(
+                            game.connectedPlayersList,
+                            ([k, v]) => v
+                        ).find((p) => p.address === address && p.port === port)!
+                            .clientFakeId,
+                    },
+                })
+            }
             console.log('Connection closed')
         })
         client.on('end', () => {
@@ -77,15 +109,18 @@ export function connect(port: number, address: string) {
 
         // Handle errors
         client.on('error', (err) => {
+            console.log(err)
             const player = Array.from(
                 game.connectedPlayersList,
                 ([k, v]) => v
-            ).find((p) => p.address === address && p.port === port)!
-            if (player.isHost) startLeaderElection()
-            game.disconnectPlayer(player.id)
-            connections.delete(`${address}:${port}`)
+            ).find((p) => p.address === address && p.port === port)
+            if (player) {
+                if (player.isHost) startLeaderElection()
+                game.disconnectPlayer(player.id)
+            }
+            connections.delete(connectionId)
             client.end()
-            resolve(false)
+            resolve([false, connectionId])
         })
     })
     return isConnected
@@ -93,36 +128,25 @@ export function connect(port: number, address: string) {
 
 server.on('connection', (connectionSocket) => {
     const id = uuid()
-    console.log('client connected')
+    console.log('client connected on: ', id)
 
-    connections.set(
-        `${connectionSocket.localAddress}:${connectionSocket.localPort}`,
-        connectionSocket
-    )
+    connections.set(id, connectionSocket)
 
     connectionSocket.on('data', (data) => {
         console.log('message received')
-        onMessage(
-            data.toString(),
-            connectionSocket.localAddress || '',
-            connectionSocket.localPort || 0,
-            sendMessage
-        )
+        onMessage(data.toString(), id, sendMessage)
     })
     connectionSocket.on('error', (err) => {
         const player = Array.from(
             game.connectedPlayersList,
             ([k, v]) => v
-        ).find(
-            (p) =>
-                p.address === (connectionSocket.localAddress || '') &&
-                p.port === (connectionSocket.localPort || 0)
-        )!
-        if (player.isHost) startLeaderElection()
-        game.disconnectPlayer(player.id)
-        connections.delete(
-            `${connectionSocket.localAddress || ''}:${connectionSocket.localPort || 0}`
-        )
+        ).find((p) => p.serverId === id)
+        if (player) {
+            if (player.isHost) startLeaderElection()
+
+            game.disconnectPlayer(player.id)
+            connections.delete(id)
+        }
         ipc.send({
             name: 'error',
             type: 'push',
@@ -136,31 +160,20 @@ server.on('connection', (connectionSocket) => {
         const player = Array.from(
             game.connectedPlayersList,
             ([k, v]) => v
-        ).find(
-            (p) =>
-                p.address === (connectionSocket.localAddress || '') &&
-                p.port === (connectionSocket.localPort || 0)
-        )!
-        if (player.isHost) startLeaderElection()
-        game.disconnectPlayer(player.id)
-        connections.delete(
-            `${connectionSocket.localAddress || ''}:${connectionSocket.localPort || 0}`
-        )
-        ipc.send({
-            type: 'push',
-            name: 'error',
-            args: {
-                type: 'disconnect',
-                playerId: Array.from(
-                    game.connectedPlayersList,
-                    ([k, v]) => v
-                ).find(
-                    (p) =>
-                        p.address === connectionSocket.localAddress &&
-                        p.port === connectionSocket.localPort
-                )!.clientFakeId,
-            },
-        })
+        ).find((p) => p.serverId === id)
+        if (player) {
+            if (player.isHost) startLeaderElection()
+            game.disconnectPlayer(player.id)
+            connections.delete(id)
+            ipc.send({
+                type: 'push',
+                name: 'error',
+                args: {
+                    type: 'disconnect',
+                    playerId: player.clientFakeId,
+                },
+            })
+        }
         connectionSocket.end()
         console.log('client disconnected')
     })
@@ -184,8 +197,8 @@ server.on('listening', () => {
     console.log(
         `server listening on ${
             address && typeof address === 'object' ? address.address : address
-        }:${PORT}`
+        }:${SERVER_PORT}`
     )
 })
 
-server.listen(PORT)
+server.listen(SERVER_PORT, SERVER_ADDRESS)

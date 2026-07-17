@@ -48,47 +48,47 @@ const createWindow = (socketName = serverSocket) => {
     })
 }
 
-function createBackgroundWindow(socketName: string, show = false) {
-    const win = new BrowserWindow({
-        x: 500,
-        y: 300,
-        width: 700,
-        height: 500,
-        show: show,
-        webPreferences: {
-            nodeIntegration: true,
-            preload: path.join(__dirname, '/preload.js'),
-        },
-    })
-    if (BACKGROUND_WINDOW_VITE_DEV_SERVER_URL) {
-        win.loadURL(BACKGROUND_WINDOW_VITE_DEV_SERVER_URL)
-    } else {
-        win.loadFile(
-            path.join(
-                __dirname,
-                `../renderer/${BACKGROUND_WINDOW_VITE_NAME}/server-dev.html`
-            )
-        )
-    }
+// function createBackgroundWindow(socketName: string, show = false) {
+//     const win = new BrowserWindow({
+//         x: 500,
+//         y: 300,
+//         width: 700,
+//         height: 500,
+//         show: show,
+//         webPreferences: {
+//             nodeIntegration: true,
+//             preload: path.join(__dirname, '/preload.js'),
+//         },
+//     })
+//     if (BACKGROUND_WINDOW_VITE_DEV_SERVER_URL) {
+//         win.loadURL(BACKGROUND_WINDOW_VITE_DEV_SERVER_URL)
+//     } else {
+//         win.loadFile(
+//             path.join(
+//                 __dirname,
+//                 `../renderer/${BACKGROUND_WINDOW_VITE_NAME}/server-dev.html`
+//             )
+//         )
+//     }
 
-    win.webContents.openDevTools()
-    win.webContents.on('did-finish-load', () => {
-        win.webContents.send('set-socket', { name: socketName })
-    })
+//     win.webContents.openDevTools()
+//     win.webContents.on('did-finish-load', () => {
+//         win.webContents.send('set-socket', { name: socketName })
+//     })
 
-    serverWin = win
-}
+//     serverWin = win
+// }
 
 app.on('ready', async () => {
     serverSocket = await findOpenSocket()
 
     createWindow(serverSocket)
 
-    if (isDev) {
-        createBackgroundWindow(serverSocket, true)
-    } else {
-        createBackgroundWindow(serverSocket, false)
-    }
+    // if (isDev) {
+    //     createBackgroundWindow(serverSocket, true)
+    // } else {
+    //     createBackgroundWindow(serverSocket, false)
+    // }
 })
 
 app.on('before-quit', () => {

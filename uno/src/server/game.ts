@@ -16,6 +16,7 @@ export function mulberry32(a: number) {
 export const user: ServerSidePlayer = {
     actionDecision: 'null',
     address: '',
+    serverId: '',
     clientFakeId: '',
     hand: [],
     id: '',
@@ -25,9 +26,9 @@ export const user: ServerSidePlayer = {
     name: '',
     port: 0,
     // eslint-disable-next-line @typescript-eslint/no-empty-function
-    timeoutKeepAlive: (() => {}) as any,
+    timeoutKeepAlive: setTimeout(() => undefined) as any,
     // eslint-disable-next-line @typescript-eslint/no-empty-function
-    timeoutEndConnection: (() => {}) as any,
+    timeoutEndConnection: setTimeout(() => undefined) as any,
     isUser: true,
 }
 const normalDeck = [
@@ -188,6 +189,10 @@ export function startGame(
     if (starterGame) {
         game = starterGame
         game.random = mulberry32(game.seed)
+        game.players = game.players.map((p) => ({
+            ...p,
+            isUser: p.id === user.id,
+        }))
         return game
     }
     game.seed = seed
@@ -215,7 +220,12 @@ export function startGame(
         }
         return p
     })
-    game.playerTurnId = players[Math.round(Math.random() * 10) % 4].id
+    game.players = game.players.map((p) => ({
+        ...p,
+        isUser: p.id === user.id,
+    }))
+    game.playerTurnId =
+        players[Math.round(Math.random() * 10) % players.length].id
     game.playOrder = 'up'
     return game
 }

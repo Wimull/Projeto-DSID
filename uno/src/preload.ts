@@ -7,7 +7,6 @@ import ipc from 'node-ipc'
 import * as uuid from 'uuid'
 import serverHandlers from './server/server-handlers'
 import serverIpc from './server/server-ipc'
-import { PORT } from './server/server'
 
 let resolveSocketPromise: (value: string | PromiseLike<string>) => void
 const socketPromise = new Promise((resolve) => {
@@ -25,7 +24,7 @@ ipcRenderer.on('set-socket', (event, { name }) => {
 })
 
 ipcRenderer.on('set-socket', (event, { name }) => {
-    serverIpc.init(name, serverHandlers(PORT))
+    serverIpc.init(name, serverHandlers())
 })
 
 contextBridge.exposeInMainWorld(
@@ -37,10 +36,15 @@ contextBridge.exposeInMainWorld(
                 // cbs.forEach((...args: any[]) => {
                 //     //@ts-ignore
                 //     ipc.of[id].on(...args)
-                
-                cbs.forEach(([eventType, handler]: [string, (...args: any[]) => void]) => {
-                    ipc.of[id].on(eventType, handler)
-                })
+
+                cbs.forEach(
+                    ([eventType, handler]: [
+                        string,
+                        (...args: any[]) => void,
+                    ]) => {
+                        ipc.of[id].on(eventType, handler)
+                    }
+                )
             })
         })
     }

@@ -3,7 +3,7 @@ import type { ServerSidePlayer, Message, Card } from './types'
 import ipc from './server-ipc'
 
 import {
-    PORT,
+    SERVER_PORT,
     connections,
     connect,
     sendMessage as socketSendMessage,
@@ -11,11 +11,7 @@ import {
 
 import * as game from './game'
 
-type SocketSendMessage = (
-    message: string,
-    port: number,
-    address: string
-) => void
+type SocketSendMessage = (message: string, serverId: string) => void
 
 const ELECTION_TIMEOUT_MS = 5000
 
@@ -71,7 +67,6 @@ export function startLeaderElection({
     notify = true,
 }: { notify?: boolean } = {}) {
     const connectedPlayers = Array.from(game.connectedPlayersList.values())
-
     if (connectedPlayers.length === 0) {
         leaderElectionState.leaderId = null
         leaderElectionState.votedFor = null
@@ -79,6 +74,8 @@ export function startLeaderElection({
         clearLeaderElectionTimer()
         return undefined
     }
+    //@ts-ignore
+    connectedPlayers.sort((pa, pb) => pa.id > pb.id)
 
     leaderElectionState.currentTerm += 1
     const candidate = connectedPlayers[0]
@@ -127,29 +124,58 @@ export function ensureLeader({ notify = true }: { notify?: boolean } = {}) {
 
     return startLeaderElection({ notify })
 }
+const resendTimeoutDelay = 1000
 
-export function sendMessage(
-    player: ServerSidePlayer,
-    message: Omit<Message, 'messageNum'>
-) {
-    const messageNum =
-        player.messagesSentWithoutACK[player.messagesSentWithoutACK.length - 1]
-            ?.messageNum || 0
-
-    const resendTimeout = setTimeout(() => {
+function resendTimeoutFunction(player: ServerSidePlayer, messageNum: number) {
+    return () => {
+        const resendTimeout = setTimeout(
+            resendTimeoutFunction,
+            resendTimeoutDelay
+        )
         player.messagesSentWithoutACK.forEach((m) => {
             if (m.messageNum === messageNum) {
                 m.resend(resendTimeout, messageNum)
             }
         })
-    }, 1000)
-    const send = (resendTimeout: NodeJS.Timeout, messageNum: number) => {
+    }
+}
+
+function keepAliveTimeout(player: ServerSidePlayer) {
+    return () =>
+        sendMessage(player, {
+            type: 'KeepAlive',
+            data: { player: game.user },
+        })
+}
+const keepAliveTimeoutDelay = 5000
+
+function endConnectionTimeout(player: ServerSidePlayer) {
+    return () => {
+        disconnectPlayer(player)
+    }
+}
+const endConnectionTimeoutDelay = 15000
+
+export function sendMessage(
+    player: ServerSidePlayer,
+    message: Omit<Message, 'messageNum'>
+) {
+    console.log(player)
+    const messageNum =
+        player.messagesSentWithoutACK[player.messagesSentWithoutACK.length - 1]
+            ?.messageNum || 0
+
+    const resendTimeout = setTimeout(
+        resendTimeoutFunction(player, messageNum),
+        resendTimeoutDelay
+    ) as any
+    const send = (resendTimeout: number, messageNum: number) => {
         socketSendMessage(
             JSON.stringify({ ...message, messageNum: messageNum }),
-            player.port,
-            player.address
+            player.serverId
         )
-        resendTimeout.refresh()
+        clearTimeout(resendTimeout)
+        setTimeout(resendTimeoutFunction, resendTimeoutDelay)
     }
     if (message.type === 'ACK') return send(resendTimeout, messageNum)
     player.messagesSentWithoutACK.push({
@@ -186,13 +212,12 @@ export function disconnectPlayer(player: ServerSidePlayer) {
 
 export function onMessage(
     msg: string,
-    address: string,
-    port: number,
+    serverId: string,
     socketSendMessage: SocketSendMessage
 ) {
     const messageJSON: Message = JSON.parse(msg)
     const { data, messageNum: clientMessageNum, type } = messageJSON
-    console.log(`server got a message type ${type} from ${address}:${port}`)
+    console.log(`server got a message type ${type} from ${serverId}`)
 
     const ACKRes: Partial<Message> = {
         type: 'ACK',
@@ -207,10 +232,9 @@ export function onMessage(
         socketSendMessage(
             JSON.stringify({
                 ...ACKRes,
-                data: { ...game.connectedPlayersList.get('localhost:' + PORT) },
+                data: { player: game.user },
             }),
-            port,
-            address
+            serverId
         )
     let playerAction:
         | {
@@ -235,52 +259,117 @@ export function onMessage(
     switch (type) {
         case 'TryConnect': {
             if (game.game.players.length < 4) {
-                game.connectPlayer(data.player)
+                game.connectPlayer({ ...data.player, serverId, isUser: false })
                 ensureLeader({ notify: true })
-                sendMessage(data.player, {
-                    type: 'ConnectionAccepted',
-                    data: {
-                        player: game.user,
+                sendMessage(
+                    { ...data.player, serverId, isUser: false },
+                    {
+                        type: 'ConnectionAccepted',
+                        data: {
+                            player: game.user,
+                            players: Array.from(
+                                game.connectedPlayersList,
+                                ([, value]) => value
+                            ),
+                        },
+                    }
+                )
+                ipc.send({
+                    type: 'push',
+                    name: 'acceptConnect',
+                    args: {
+                        port: SERVER_PORT,
                         players: Array.from(
-                            game.connectedPlayersList,
-                            ([, value]) => value
-                        ),
+                            game.connectedPlayersList.values()
+                        ).map((p) => ({
+                            name: p.name,
+                            hand: p.hand,
+                            id: p.clientFakeId,
+                            isHost: p.isHost,
+                            isReady: p.isReady,
+                            isUser: game.user.id === p.id,
+                        })),
                     },
                 })
             } else {
-                sendMessage(data.player, {
-                    type: 'ConnectionDenied',
-                    data: {
-                        player: data.player,
-                    },
-                })
+                sendMessage(
+                    { ...data.player, serverId, isUser: false },
+                    {
+                        type: 'ConnectionDenied',
+                        data: {
+                            player: data.player,
+                        },
+                    }
+                )
             }
             break
         }
         case 'ConnectionAccepted': {
+            const host = { ...data.player }
+            const kpTimeout = setTimeout(
+                keepAliveTimeout(host),
+                keepAliveTimeoutDelay
+            ) as any
+            host.timeoutKeepAlive = kpTimeout
+            const endTimeout = setTimeout(
+                endConnectionTimeout(host),
+                endConnectionTimeoutDelay
+            ) as any
+            host.timeoutEndConnection = endTimeout
+            game.connectPlayer({
+                ...host,
+                serverId,
+                isUser: false,
+            })
             data.players.forEach((p: ServerSidePlayer) => {
-                connect(p.port, p.address).then((success) => {
-                    if (!success) return
-                    sendMessage(p, {
-                        type: 'Connect',
-                        data: { player: game.user },
-                    })
-                    ipc.send({
-                        type: 'push',
-                        name: 'acceptConnect',
-                        args: {
-                            port: PORT,
-                            players: data.players.map((p) => ({
-                                name: p.name,
-                                hand: p.hand,
-                                id: p.clientFakeId,
-                                isHost: p.isHost,
-                                isReady: p.isReady,
-                                isUser: game.user.id === p.id,
-                            })),
-                        },
-                    })
-                })
+                if (data.player.id === p.id || p.id === game.user.id) return
+                connect(p.port, p.address).then(
+                    ([success, playerServerId]: any) => {
+                        if (!success) return
+                        const player = { ...p }
+                        const kpTimeout = setTimeout(
+                            keepAliveTimeout(player),
+                            keepAliveTimeoutDelay
+                        ) as any
+                        player.timeoutKeepAlive = kpTimeout
+                        const endTimeout = setTimeout(
+                            endConnectionTimeout(player),
+                            endConnectionTimeoutDelay
+                        ) as any
+                        player.timeoutEndConnection = endTimeout
+                        game.connectPlayer({
+                            ...player,
+                            serverId: playerServerId,
+                            isUser: false,
+                        })
+                        sendMessage(
+                            {
+                                ...player,
+                                serverId: playerServerId,
+                                isUser: false,
+                            },
+                            {
+                                type: 'Connect',
+                                data: { player: game.user },
+                            }
+                        )
+                    }
+                )
+            })
+            ipc.send({
+                type: 'push',
+                name: 'acceptConnect',
+                args: {
+                    port: SERVER_PORT,
+                    players: data.players.map((p) => ({
+                        name: p.name,
+                        hand: p.hand,
+                        id: p.clientFakeId,
+                        isHost: p.isHost,
+                        isReady: p.isReady,
+                        isUser: game.user.id === p.id,
+                    })),
+                },
             })
             break
         }
@@ -293,6 +382,22 @@ export function onMessage(
             break
         }
         case 'Connect': {
+            const player = { ...data.player }
+            const kpTimeout = setTimeout(
+                keepAliveTimeout(player),
+                keepAliveTimeoutDelay
+            ) as any
+            player.timeoutKeepAlive = kpTimeout
+            const endTimeout = setTimeout(
+                endConnectionTimeout(player),
+                endConnectionTimeoutDelay
+            ) as any
+            player.timeoutEndConnection = endTimeout
+            game.connectPlayer({
+                ...player,
+                serverId,
+                isUser: false,
+            })
             ipc.send({
                 type: 'push',
                 name: 'connect',
@@ -312,8 +417,18 @@ export function onMessage(
         case 'KeepAlive': {
             const player = game.connectedPlayersList.get(data.player.id)
             if (player) {
-                player.timeoutKeepAlive.refresh()
-                player.timeoutEndConnection.refresh()
+                clearTimeout(player.timeoutKeepAlive)
+                const kpTimeout = setTimeout(
+                    keepAliveTimeout(player),
+                    keepAliveTimeoutDelay
+                ) as any
+                player.timeoutKeepAlive = kpTimeout
+                clearTimeout(player.timeoutEndConnection)
+                const endTimeout = setTimeout(
+                    endConnectionTimeout(player),
+                    endConnectionTimeoutDelay
+                ) as any
+                player.timeoutEndConnection = endTimeout
                 if (leaderElectionState.leaderId === player.id) {
                     resetLeaderElectionTimer()
                 }
@@ -386,8 +501,92 @@ export function onMessage(
                 game.connectedPlayersList.forEach((p) => {
                     p.actionDecision = 'null'
                 })
-            }
+                if (data.actionType === 'draw') {
+                    const decision = game.validateAction({
+                        player: data.player,
+                        type: 'draw',
+                        cardDrawn: data.cardDrawn,
+                        nextPlayerTurnId: data.playerTurnId,
+                    })
+                    game.user.actionDecision = decision ? 'pass' : 'notPass'
+                } else if (data.actionType === 'playCard') {
+                    const decision = game.validateAction({
+                        player: data.player,
+                        type: 'play',
+                        card: data.cardPlayed,
+                        nextPlayerTurnId: data.playerTurnId,
+                        selectedColor: data.selectedColor,
+                    })
+                    game.user.actionDecision = decision ? 'pass' : 'notPass'
+                }
+                const player = game.connectedPlayersList.get(data.player.id)
+                if (player) {
+                    game.connectedPlayersList.set(data.player.id, {
+                        ...player,
+                        actionDecision: 'pass',
+                    })
+                    let didEveryoneChoose = true
+                    let doesPass = 0
+                    game.connectedPlayersList.forEach((p: ServerSidePlayer) => {
+                        if (p.actionDecision === 'null') {
+                            didEveryoneChoose = false
+                        }
+                        if (p.actionDecision === 'pass') {
+                            doesPass++
+                        }
+                    })
+                    if (
+                        didEveryoneChoose &&
+                        doesPass >= game.connectedPlayersList.size / 2
+                    ) {
+                        game.connectedPlayersList.forEach(
+                            (p: ServerSidePlayer) => {
+                                if (p.id !== game.user.id) {
+                                    sendMessage(p, {
+                                        type: 'ActionPassed',
+                                        data: {
+                                            player: game.user,
 
+                                            actionType: playerAction.actionType,
+                                            //@ts-ignore
+
+                                            cardDrawn: playerAction.cardDrawn,
+                                            //@ts-ignore
+
+                                            playerTurnId:
+                                                playerAction.playerTurnId,
+                                            //@ts-ignore
+
+                                            cardPlayed: playerAction.cardPlayed,
+                                            selectedColor:
+                                                //@ts-ignore
+
+                                                playerAction.selectedColor,
+                                        },
+                                    })
+                                }
+                            }
+                        )
+                    } else {
+                        game.connectedPlayersList.forEach(
+                            (p: ServerSidePlayer) => {
+                                if (p.id !== game.user.id) {
+                                    sendMessage(p, {
+                                        type: 'ActionDenied',
+                                        data: {
+                                            player: game.user,
+
+                                            actionType: playerAction.actionType,
+                                            playerTurnId:
+                                                game.game.playerTurnId,
+                                        },
+                                    })
+                                }
+                            }
+                        )
+                    }
+                }
+            }
             if (data.actionType === 'draw') {
                 const decision = game.validateAction({
                     player: data.player,
@@ -442,7 +641,9 @@ export function onMessage(
                                     ? c.card
                                     : 'back',
                         })),
-                        playerTurnId: playerAction.playerTurnId,
+                        playerTurnId: game.game.players.find(
+                            (p) => p.id === playerAction.playerTurnId
+                        )?.clientFakeId,
                         selectedColor: newGame.selectedColor,
                         isVictory: playerAction.player.hand.length === 0,
                         victoriousPlayerName:
@@ -476,7 +677,9 @@ export function onMessage(
                                 id: c.id,
                                 card: p.id === game.user.id ? c.card : 'back',
                             })),
-                            playerTurnId: playerAction.playerTurnId,
+                            playerTurnId: game.game.players.find(
+                                (p) => p.id === playerAction.playerTurnId
+                            )?.clientFakeId,
                             //@ts-ignore
                             selectedColor: playerAction.selectedColor,
                             isVictory: p.hand.length === 0,
@@ -636,18 +839,26 @@ export function onMessage(
         }
         case 'StartGame': {
             game.startGame(data.players, data.seed, { ...data })
+            console.log(data.players)
             ipc.send({
                 type: 'push',
                 name: 'startGame',
                 args: {
                     players: data.players.map((p) => ({
-                        ...p,
+                        id: p.clientFakeId,
+                        isHost: p.isHost,
+                        isReady: p.isReady,
+                        name: p.name,
+                        isUser: game.user.id === p.id,
                         hand: p.hand.map((c) => ({
                             id: c.id,
                             card: p.id === game.user.id ? c.card : 'back',
                         })),
                     })),
-                    starterPlayerTurnId: data.playerTurnId,
+                    starterPlayerTurnId:
+                        game.game.players.find(
+                            (p) => p.id === data.playerTurnId
+                        )?.clientFakeId || '',
                     starterPlayedCard: data.playedCard,
                     starterColor: data.selectedColor,
                 },
@@ -669,12 +880,21 @@ export function onMessage(
         type !== 'Connect' &&
         type !== 'Disconnect'
     ) {
-        game.connectedPlayersList
-            .get(data.player.id)
-            ?.timeoutKeepAlive.refresh()
-        game.connectedPlayersList
-            .get(data.player.id)
-            ?.timeoutEndConnection.refresh()
+        const player = game.connectedPlayersList.get(data.player.id)
+        if (player) {
+            clearTimeout(player.timeoutKeepAlive)
+            const kpTimeout = setTimeout(
+                keepAliveTimeout(player),
+                keepAliveTimeoutDelay
+            ) as any
+            player.timeoutKeepAlive = kpTimeout
+            clearTimeout(player.timeoutEndConnection)
+            const endTimeout = setTimeout(
+                endConnectionTimeout(player),
+                endConnectionTimeoutDelay
+            ) as any
+            player.timeoutEndConnection = endTimeout
+        }
     }
 }
 

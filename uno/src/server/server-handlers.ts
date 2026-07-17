@@ -2,15 +2,21 @@
 
 import { disconnectPlayer, ensureLeader, sendMessage } from './callbacks'
 import * as game from './game'
-import { connect, sendMessage as socketSendMessage } from './server'
+import {
+    connect,
+    sendMessage as socketSendMessage,
+    SERVER_PORT,
+    SERVER_ADDRESS,
+    connections,
+} from './server'
 // eslint-disable-next-line import/no-unresolved
 import { v4 as uuid } from 'uuid'
-import { Card, ServerSidePlayer } from './types'
+import { Card, Player, ServerSidePlayer } from './types'
 import { json } from 'node:stream/consumers'
 
-function serverHandlers(port: number) {
+function serverHandlers() {
     const handlers = {
-        changeIsRead: async ({ isReady }: { isReady: boolean }) => {
+        changeIsReady: async ({ isReady }: { isReady: boolean }) => {
             game.user.isReady = isReady
             game.connectedPlayersList.forEach((p) => {
                 if (p.id === game.user.id) return
@@ -23,13 +29,22 @@ function serverHandlers(port: number) {
                     },
                 })
             })
+            return { isReady }
         },
         disconnect: async () => {
             game.connectedPlayersList.forEach((p) => {
                 if (p.id !== game.user.id) {
-                    disconnectPlayer(p)
+                    game.disconnectPlayer(p.id)
+                    sendMessage(p, {
+                        type: 'Disconnect',
+                        data: { player: game.user },
+                    })
                 }
             })
+            connections.forEach((s) => {
+                s.end()
+            })
+            connections.clear()
             return
         },
         action: async (data: {
@@ -61,16 +76,6 @@ function serverHandlers(port: number) {
                                 cardDrawn,
                                 playerTurnId: newGame.playerTurnId,
                                 game: newGame,
-                            },
-                        })
-                    }
-
-                    if (p.isHost && !game.user.isHost) {
-                        sendMessage(p, {
-                            type: 'ActionDecision',
-                            data: {
-                                player: game.user,
-                                doesPass: true,
                             },
                         })
                     }
@@ -114,15 +119,41 @@ function serverHandlers(port: number) {
                     },
                 })
             })
+            return {
+                players: newGame.players.map((p) => ({
+                    id: p.clientFakeId,
+                    isHost: p.isHost,
+                    isReady: p.isReady,
+                    name: p.name,
+                    isUser: p.isUser,
+                    hand: p.hand.map((c) => ({
+                        id: c.id,
+                        card: p.isUser ? c.card : 'back',
+                    })),
+                })),
+
+                starterPlayerTurnId:
+                    newGame.players.find((p) => p.id === newGame.playerTurnId)
+                        ?.clientFakeId || '',
+                starterPlayedCard: newGame.playedCard,
+                starterColor: newGame.selectedColor,
+            } as {
+                players: Player[]
+                starterPlayerTurnId: string
+                starterPlayedCard: Card
+                starterColor: string
+            }
         },
         createLobby: async ({ playerName }: { playerName: string }) => {
             game.user.id = uuid()
             game.user.clientFakeId = uuid()
             game.user.name = playerName
+            ;((game.user.port = SERVER_PORT),
+                (game.user.address = SERVER_ADDRESS))
             game.connectedPlayersList.set(game.user.id, game.user)
             ensureLeader({ notify: false })
             return {
-                port,
+                port: SERVER_PORT,
                 playerId: game.user.clientFakeId,
             }
         },
@@ -133,26 +164,32 @@ function serverHandlers(port: number) {
             ip: string
             playerName: string
         }) => {
+            console.log('try to connect to: ' + lobbyIp)
             game.user.id = uuid()
             game.user.clientFakeId = uuid()
             game.user.name = playerName
+            ;((game.user.port = SERVER_PORT),
+                (game.user.address = SERVER_ADDRESS))
             game.connectedPlayersList.set(game.user.id, game.user)
             ensureLeader({ notify: false })
-            const [address, port] = lobbyIp.split(':')
-            connect(parseInt(port), address).then((success) => {
-                console.log(success)
-                if (!success) return
-                socketSendMessage(
-                    JSON.stringify({
-                        type: 'TryConnect',
-                        data: {
-                            player: game.user,
-                        },
-                    }),
-                    parseInt(port),
-                    address
-                )
-            })
+            const ip = lobbyIp.split(':')
+            const address = ip[ip.length - 2]
+            const port = ip[ip.length - 1]
+            connect(parseInt(port), address).then(
+                ([success, serverId]: any) => {
+                    console.log(success)
+                    if (!success) return
+                    socketSendMessage(
+                        JSON.stringify({
+                            type: 'TryConnect',
+                            data: {
+                                player: game.user,
+                            },
+                        }),
+                        serverId
+                    )
+                }
+            )
         },
     }
     return handlers

@@ -7,6 +7,7 @@ import './index.css'
 import GamePage from './components/GamePage'
 import HomePage from './components/HomePage'
 import LobbyPage from './components/LobbyPage'
+import { Card } from '../server/types'
 
 export default function App() {
     const [connected, setConnected] = useState(false)
@@ -17,7 +18,10 @@ export default function App() {
     const [hasJoined, setHasJoined] = useState(false)
     const [starterPlayerTurnId, setStarterPlayerTurnId] = useState('')
     const [starterColor, setStarterColor] = useState('')
-    const [starterPlayedCard, setStarterPlayedCard] = useState('')
+    const [starterPlayedCard, setStarterPlayedCard] = useState<Card>({
+        card: '',
+        id: '',
+    })
     const [userPort, setUserPort] = useState('')
 
     const handleReturnHome = async () => {

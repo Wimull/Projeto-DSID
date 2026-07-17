@@ -24,12 +24,13 @@ export type ServerSidePlayer = Player & {
     clientFakeId: string
     address: string
     port: number
-    timeoutKeepAlive: NodeJS.Timeout
-    timeoutEndConnection: NodeJS.Timeout
+    serverId: string
+    timeoutKeepAlive: number
+    timeoutEndConnection: number
     messagesSentWithoutACK: {
-        resend: (resendTimeout: NodeJS.Timeout, messageNum: number) => void
+        resend: (resendTimeout: number, messageNum: number) => void
         messageNum: number
-        timeout: NodeJS.Timeout
+        timeout: number
     }[]
 }
 export type Message =
