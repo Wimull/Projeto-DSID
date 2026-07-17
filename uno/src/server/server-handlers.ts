@@ -2,13 +2,28 @@
 
 import { disconnectPlayer, ensureLeader, sendMessage } from './callbacks'
 import * as game from './game'
-import { connect } from './server'
+import { connect, sendMessage as socketSendMessage } from './server'
 // eslint-disable-next-line import/no-unresolved
 import { v4 as uuid } from 'uuid'
 import { Card, ServerSidePlayer } from './types'
+import { json } from 'node:stream/consumers'
 
 function serverHandlers(port: number) {
     const handlers = {
+        changeIsRead: async ({ isReady }: { isReady: boolean }) => {
+            game.user.isReady = isReady
+            game.connectedPlayersList.forEach((p) => {
+                if (p.id === game.user.id) return
+                sendMessage(p, {
+                    type: isReady
+                        ? 'PlayerReadyStartGame'
+                        : 'PlayerCancelReadyStartGame',
+                    data: {
+                        player: game.user,
+                    },
+                })
+            })
+        },
         disconnect: async () => {
             game.connectedPlayersList.forEach((p) => {
                 if (p.id !== game.user.id) {
@@ -125,28 +140,18 @@ function serverHandlers(port: number) {
             ensureLeader({ notify: false })
             const [address, port] = lobbyIp.split(':')
             connect(parseInt(port), address).then((success) => {
+                console.log(success)
                 if (!success) return
-                const host: ServerSidePlayer = {
-                    actionDecision: 'null',
-                    address: address,
-                    clientFakeId: '',
-                    hand: [],
-                    id: '',
-                    isHost: true,
-                    isReady: false,
-                    messagesSentWithoutACK: [],
-                    name: '',
-                    port: parseInt(port),
-                    timeoutKeepAlive: setTimeout(() => undefined, 0),
-                    timeoutEndConnection: setTimeout(() => undefined, 0),
-                    isUser: false,
-                }
-                sendMessage(host, {
-                    type: 'TryConnect',
-                    data: {
-                        player: game.user,
-                    },
-                })
+                socketSendMessage(
+                    JSON.stringify({
+                        type: 'TryConnect',
+                        data: {
+                            player: game.user,
+                        },
+                    }),
+                    parseInt(port),
+                    address
+                )
             })
         },
     }
