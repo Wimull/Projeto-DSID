@@ -57,7 +57,6 @@ function serverHandlers() {
             card: Card
             selectedColor?: 'red' | 'green' | 'yellow' | 'blue'
         }) => {
-            console.log(data)
             if (game.user.isHost) {
                 game.connectedPlayersList.forEach((p) => {
                     p.actionDecision = 'null'
@@ -200,7 +199,6 @@ function serverHandlers() {
             const port = ip[ip.length - 1]
             connect(parseInt(port), address).then(
                 ([success, serverId]: any) => {
-                    console.log(success)
                     if (!success) return
                     socketSendMessage(
                         JSON.stringify({

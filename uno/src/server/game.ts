@@ -256,8 +256,6 @@ export function goNextTurn({
     skipNumber?: number
     playerTurnId?: string
 }) {
-    console.trace('goNextTurn')
-    console.log(newGame, playerTurnId)
     const index = newGame.players.findIndex(
         (p) => p.id === newGame.playerTurnId
     )
@@ -280,7 +278,6 @@ export function goNextTurn({
 }
 
 export function drawFromDeck(newGame: Game) {
-    console.trace('Draw')
     if (newGame.deck.length === 0) {
         let hasCardPlayedTakenOut = false
         newGame.deck = normalDeck
@@ -319,10 +316,7 @@ export function playCard(
         random: game.random,
         seed: game.seed,
     }
-    console.log('playCard', playerId, {
-        ...newGame,
-        players: newGame.players.map((p) => ({ ...p, hand: [...p.hand] })),
-    })
+
     const index = newGame.players.findIndex(
         (p) => p.id === newGame.playerTurnId
     )
@@ -461,10 +455,7 @@ export function drawCard(playerId: string) {
         random: game.random,
         seed: game.seed,
     }
-    console.log('drawCard', playerId, {
-        ...newGame,
-        players: newGame.players.map((p) => ({ ...p, hand: [...p.hand] })),
-    })
+
     const player =
         newGame.players[newGame.players.findIndex((p) => p.id === playerId)]
     const newPlayer = {
@@ -507,12 +498,9 @@ export function validateAction(
               card: Card
           }
 ) {
-    console.trace('validateAction')
-    console.log(action, { ...game, players: [...game.players] })
     const index = game.players.findIndex((p) => p.id === game.playerTurnId)
     if (action.nextPlayerTurnId)
         if (action.type === 'draw') {
-            console.log(action.cardDrawn, [...game.deck])
             if (
                 action.cardDrawn.id === game.deck[game.deck.length - 1].id &&
                 action.cardDrawn.card === game.deck[game.deck.length - 1].card
@@ -524,12 +512,7 @@ export function validateAction(
                                 game.players.length
                         )
                     ].id
-                console.log(
-                    'validate: ',
-                    nextTurnId,
-                    action.nextPlayerTurnId,
-                    nextTurnId === action.nextPlayerTurnId
-                )
+
                 return nextTurnId === action.nextPlayerTurnId ? true : false
             }
             return false
@@ -541,11 +524,7 @@ export function validateAction(
             const cardIndex = player.hand.findIndex(
                 (c) => c.id === action.card.id
             )
-            console.log(
-                cardIndex,
-                player.hand[cardIndex].card,
-                action.card.card
-            )
+
             if (
                 cardIndex !== -1 &&
                 player.hand[cardIndex].card === action.card.card
@@ -574,12 +553,7 @@ export function validateAction(
                             )
                         ]!.id
                 }
-                console.log(
-                    'validate: ',
-                    nextPlayerTurnId,
-                    action.nextPlayerTurnId,
-                    nextPlayerTurnId === action.nextPlayerTurnId
-                )
+
                 return nextPlayerTurnId === action.nextPlayerTurnId
             }
             return false

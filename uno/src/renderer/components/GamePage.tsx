@@ -51,12 +51,6 @@ export default function GamePage({
     const [otherPlayers, setOtherPlayers] = useState<Player[]>(
         starterPlayers.filter((p) => !p.isUser)
     )
-    console.log(
-        starterPlayerTurnId,
-        currentPlayerTurnId,
-        playerId,
-        otherPlayers
-    )
 
     function canPlayCard({ id, card }: Card): boolean {
         if (currentPlayerTurnId !== playerId) return false
@@ -67,7 +61,7 @@ export default function GamePage({
         }
 
         const cardColor = card.match(/red|blue|green|yellow/)?.[0]
-        console.log(playedColor, hand, selectedCard)
+
         if (playedColor === cardColor) return true
 
         const playedValue = playedCard.card.match(
@@ -101,7 +95,6 @@ export default function GamePage({
         setLoading(true)
         setSelectedCard(null)
 
-        console.log(selectedCard.card)
         if (selectedCard.card === 'baralho') {
             const data: { playerHand: Card[]; turnPlayerID: string } =
                 await send('action', {
@@ -166,8 +159,6 @@ export default function GamePage({
                       }
                 )
             ) => {
-                console.log(data)
-
                 if (data.selectedColor) setPlayedColor(data.selectedColor)
                 if (playerId === data.playerId) {
                     setLoading(false)

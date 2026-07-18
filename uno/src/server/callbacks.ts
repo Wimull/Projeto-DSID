@@ -61,21 +61,13 @@ export function setPlayerAction(action: PlayerAction) {
 // time someone else took a turn. Centralizing it here means both places
 // behave identically.
 function applyApprovedAction(action: PlayerAction, playerTurnId?: string) {
-    console.trace('applyApprovedAction')
-
-    console.log('applyApprovedAction', { ...action })
     if (action.actionType === 'draw') {
         const {
             doNextTurn,
             game: newGame,
             nextPlayerTurnId,
         } = game.drawCard(action.player.id)
-        console.log('draw', {
-            ...newGame,
-            player: [
-                ...newGame.players.map((p) => ({ ...p, hand: [...p.hand] })),
-            ],
-        })
+
         // Read the drawn card back off newGame (not action.player), since
         // action.player is a snapshot taken before the draw happened and
         // never gets the new card added to its hand.
@@ -112,12 +104,6 @@ function applyApprovedAction(action: PlayerAction, playerTurnId?: string) {
             action.cardPlayed,
             action.selectedColor
         )
-        console.log('play', {
-            ...newGame,
-            player: [
-                ...newGame.players.map((p) => ({ ...p, hand: [...p.hand] })),
-            ],
-        })
 
         newGame.players.forEach((p: ServerSidePlayer) => {
             ipc.send({
@@ -291,7 +277,6 @@ export function sendMessage(
     player: ServerSidePlayer,
     message: Omit<Message, 'messageNum'>
 ) {
-    console.log(player)
     const messageNum =
         player.messagesSentWithoutACK[player.messagesSentWithoutACK.length - 1]
             ?.messageNum || 0
@@ -348,7 +333,6 @@ export function onMessage(
 ) {
     const messageJSON: Message = JSON.parse(msg)
     const { data, messageNum: clientMessageNum, type } = messageJSON
-    console.log(`server got a message type ${type} from ${serverId}`)
 
     const ACKRes: Partial<Message> = {
         type: 'ACK',
@@ -607,7 +591,7 @@ export function onMessage(
             if (!host) {
                 break
             }
-            console.log(data)
+
             if (data.actionType === 'draw') {
                 setPlayerAction({
                     player: data.player,
@@ -651,7 +635,7 @@ export function onMessage(
                     )!.actionDecision = decision ? 'pass' : 'notPass'
                 }
                 const player = game.connectedPlayersList.get(data.player.id)
-                console.log(player)
+
                 if (player) {
                     game.connectedPlayersList.set(data.player.id, {
                         ...player,
@@ -660,7 +644,6 @@ export function onMessage(
                     let didEveryoneChoose = true
                     let doesPass = 0
                     game.connectedPlayersList.forEach((p: ServerSidePlayer) => {
-                        console.log(p)
                         if (p.actionDecision === 'null') {
                             didEveryoneChoose = false
                         }
@@ -1001,7 +984,7 @@ export function onMessage(
         }
         case 'StartGame': {
             game.startGame(data.players, data.seed, { ...data })
-            console.log(data.players)
+
             ipc.send({
                 type: 'push',
                 name: 'startGame',
