@@ -173,10 +173,15 @@ export function disconnectPlayer(playerId: string) {
     if (game.players.length > 0) {
         const player =
             game.players[game.players.findIndex((p) => p.id === playerId)]
-        game.players.filter((p) => p.id !== playerId)
         if (game.playerTurnId === playerId) {
+            // goNextTurn needs the leaving player still in the array to
+            // compute their index, so this must run before removing them.
             goNextTurn(game)
         }
+        // Same issue as in playCard: .filter() doesn't mutate in place, the
+        // result has to be assigned back or the player never actually
+        // leaves the game.
+        game.players = game.players.filter((p) => p.id !== playerId)
         return game
     }
 }
@@ -283,7 +288,14 @@ export function playCard(
     }
     const player =
         newGame.players[newGame.players.findIndex((p) => p.id === playerId)]
-    player.hand.filter((c) => c.id !== cardId)
+    // .filter() returns a new array — it doesn't mutate player.hand. The
+    // previous code called it and threw the result away, so the played
+    // card was never actually removed from the player's hand.
+    player.hand = player.hand.filter((c) => c.id !== cardId)
+    // The played card was only ever copied from the *previous* playedCard
+    // (see newGame.playedCard above) and never updated to the card that
+    // was just played, so the pile visually never changed.
+    newGame.playedCard = { id: cardId, card }
     newGame.selectedColor =
         selectedColor ??
         (card.startsWith('blue')

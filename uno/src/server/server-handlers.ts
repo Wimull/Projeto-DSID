@@ -1,6 +1,11 @@
 // Funções acessadas pela front end com a função `send(nomeDoHandler)`
 
-import { disconnectPlayer, ensureLeader, sendMessage } from './callbacks'
+import {
+    disconnectPlayer,
+    ensureLeader,
+    sendMessage,
+    setPlayerAction,
+} from './callbacks'
 import * as game from './game'
 import {
     connect,
@@ -66,6 +71,12 @@ function serverHandlers() {
             }
             if (data.type === 'draw') {
                 const { game: newGame, cardDrawn } = game.drawCard(game.user.id)
+                setPlayerAction({
+                    player: game.user,
+                    actionType: 'draw',
+                    cardDrawn,
+                    playerTurnId: newGame.playerTurnId,
+                })
                 game.connectedPlayersList.forEach((p) => {
                     if (p.id !== game.user.id) {
                         sendMessage(p, {
@@ -86,6 +97,13 @@ function serverHandlers() {
                     data.card,
                     data.selectedColor
                 )
+                setPlayerAction({
+                    player: game.user,
+                    actionType: 'playCard',
+                    cardPlayed: data.card,
+                    selectedColor: data.selectedColor,
+                    playerTurnId: newGame.playerTurnId,
+                })
                 game.connectedPlayersList.forEach((p) => {
                     if (p.id !== game.user.id) {
                         sendMessage(p, {

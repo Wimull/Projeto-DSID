@@ -13,6 +13,113 @@ import * as game from './game'
 
 type SocketSendMessage = (message: string, serverId: string) => void
 
+type PlayerAction =
+    | {
+          player: ServerSidePlayer
+          actionType: 'draw'
+          cardDrawn: Card
+          playerTurnId: string
+      }
+    | {
+          player: ServerSidePlayer
+          actionType: 'playCard'
+          cardPlayed: Card
+          selectedColor?: 'blue' | 'red' | 'green' | 'yellow'
+          playerTurnId: string
+      }
+
+// This needs to live outside of onMessage: each incoming network message
+// (Action, ActionDecision, ActionPassed, ActionDenied...) triggers a
+// separate call to onMessage. If this were declared inside onMessage it
+// would reset to the default value on every call, so by the time
+// 'ActionPassed'/'ActionDenied' arrive the 'Action' that was recorded
+// earlier would already be lost.
+let playerAction: PlayerAction = {
+    actionType: 'draw',
+    player: game.user,
+    cardDrawn: { id: '1', card: 'blue1' },
+    playerTurnId: game.game.playerTurnId,
+}
+
+// When *we* are the one performing the action (not receiving it from
+// someone else through onMessage), whoever triggers it locally must call
+// this so the ActionDecision/ActionPassed/ActionDenied handlers below have
+// the real action to work with instead of the stale default.
+export function setPlayerAction(action: PlayerAction) {
+    playerAction = action
+}
+
+// Applies a consensus-approved action (draw or playCard) to the local
+// game state and pushes the resulting UI update to the renderer.
+//
+// This used to be duplicated inline in two places — the host's own
+// 'Action' handler (once it decided the move was valid) and everyone
+// else's 'ActionPassed' handler — but the host's copy of that logic was
+// simply missing: the host broadcast ActionPassed to everyone else and
+// then never applied the move to its *own* game.game, so the host's
+// local state (deck/hand/playedCard/turn) silently fell out of sync every
+// time someone else took a turn. Centralizing it here means both places
+// behave identically.
+function applyApprovedAction(action: PlayerAction) {
+    if (action.actionType === 'draw') {
+        const { doNextTurn, game: newGame } = game.drawCard(action.player.id)
+        doNextTurn()
+        // Read the drawn card back off newGame (not action.player), since
+        // action.player is a snapshot taken before the draw happened and
+        // never gets the new card added to its hand.
+        const player = newGame.players.find((p) => p.id === action.player.id)
+        ipc.send({
+            type: 'push',
+            name: 'action',
+            args: {
+                playerId: action.player.clientFakeId,
+                playedCard: newGame.playedCard,
+                playerHand: (player?.hand ?? []).map((c) => ({
+                    id: c.id,
+                    card: action.player.id === game.user.id ? c.card : 'back',
+                })),
+                playerTurnId: game.game.players.find(
+                    (p) => p.id === game.game.playerTurnId
+                )?.clientFakeId,
+                selectedColor: newGame.selectedColor,
+                isVictory: (player?.hand.length ?? 0) === 0,
+                victoriousPlayerName:
+                    (player?.hand.length ?? 0) === 0
+                        ? action.player.name
+                        : undefined,
+            },
+        })
+    } else {
+        const { doNextTurn, game: newGame } = game.playCard(
+            action.player.id,
+            action.cardPlayed,
+            action.selectedColor
+        )
+        doNextTurn()
+        newGame.players.forEach((p: ServerSidePlayer) => {
+            ipc.send({
+                type: 'push',
+                name: 'action',
+                args: {
+                    playerId: p.clientFakeId,
+                    playedCard: newGame.playedCard,
+                    playerHand: p.hand.map((c) => ({
+                        id: c.id,
+                        card: p.id === game.user.id ? c.card : 'back',
+                    })),
+                    playerTurnId: game.game.players.find(
+                        (p) => p.id === game.game.playerTurnId
+                    )?.clientFakeId,
+                    selectedColor: action.selectedColor,
+                    isVictory: p.hand.length === 0,
+                    victoriousPlayerName:
+                        p.hand.length === 0 ? p.name : undefined,
+                },
+            })
+        })
+    }
+}
+
 const ELECTION_TIMEOUT_MS = 5000
 
 const leaderElectionState = {
@@ -236,26 +343,6 @@ export function onMessage(
             }),
             serverId
         )
-    let playerAction:
-        | {
-              player: ServerSidePlayer
-              actionType: 'draw'
-              cardDrawn: Card
-              playerTurnId: string
-          }
-        | {
-              player: ServerSidePlayer
-              actionType: 'playCard'
-              cardPlayed: Card
-              selectedColor?: 'blue' | 'red' | 'green' | 'yellow'
-              playerTurnId: string
-          } = {
-        actionType: 'draw',
-        player: game.user,
-        cardDrawn: { id: '1', card: 'blue1' },
-        playerTurnId: game.game.playerTurnId,
-    }
-
     switch (type) {
         case 'TryConnect': {
             if (game.game.players.length < 4) {
@@ -567,6 +654,10 @@ export function onMessage(
                                 }
                             }
                         )
+                        // The host approved the action for everyone else —
+                        // it also needs to apply it to its own local state,
+                        // which nothing else here was doing.
+                        applyApprovedAction(playerAction)
                     } else {
                         game.connectedPlayersList.forEach(
                             (p: ServerSidePlayer) => {
@@ -621,73 +712,13 @@ export function onMessage(
         }
         case 'ActionPassed': {
             if (
-                data.actionType === 'draw' &&
-                playerAction.actionType === 'draw'
+                (data.actionType === 'draw' &&
+                    playerAction.actionType === 'draw') ||
+                (data.actionType === 'playCard' &&
+                    //@ts-ignore
+                    playerAction.actionType === 'playCard')
             ) {
-                const { doNextTurn, game: newGame } = game.drawCard(
-                    playerAction.player.id
-                )
-                doNextTurn()
-                ipc.send({
-                    type: 'push',
-                    name: 'action',
-                    args: {
-                        playerId: playerAction.player.clientFakeId,
-                        playedCard: newGame.playedCard,
-                        playerHand: playerAction.player.hand.map((c) => ({
-                            id: c.id,
-                            card:
-                                playerAction.player.id === game.user.id
-                                    ? c.card
-                                    : 'back',
-                        })),
-                        playerTurnId: game.game.players.find(
-                            (p) => p.id === playerAction.playerTurnId
-                        )?.clientFakeId,
-                        selectedColor: newGame.selectedColor,
-                        isVictory: playerAction.player.hand.length === 0,
-                        victoriousPlayerName:
-                            playerAction.player.hand.length === 0
-                                ? playerAction.player.name
-                                : undefined,
-                    },
-                })
-            } else if (
-                data.actionType === 'playCard' &&
-                //@ts-ignore
-                playerAction.actionType === 'playCard'
-            ) {
-                const { doNextTurn, game: newGame } = game.playCard(
-                    //@ts-ignore
-                    playerAction.player.id,
-                    //@ts-ignore
-                    playerAction.cardPlayed,
-                    //@ts-ignore
-                    playerAction.selectedColor
-                )
-                doNextTurn()
-                newGame.players.forEach((p: ServerSidePlayer) => {
-                    ipc.send({
-                        type: 'push',
-                        name: 'action',
-                        args: {
-                            playerId: p.clientFakeId,
-                            playedCard: newGame.playedCard,
-                            playerHand: p.hand.map((c) => ({
-                                id: c.id,
-                                card: p.id === game.user.id ? c.card : 'back',
-                            })),
-                            playerTurnId: game.game.players.find(
-                                (p) => p.id === playerAction.playerTurnId
-                            )?.clientFakeId,
-                            //@ts-ignore
-                            selectedColor: playerAction.selectedColor,
-                            isVictory: p.hand.length === 0,
-                            victoriousPlayerName:
-                                p.hand.length === 0 ? p.name : undefined,
-                        },
-                    })
-                })
+                applyApprovedAction(playerAction)
             } else {
                 ipc.send({
                     type: 'push',

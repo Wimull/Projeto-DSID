@@ -50,7 +50,33 @@ export function sendMessage(data: string, id: string) {
     console.log(connections)
     console.log(`sending message ${data} to ${id}`)
     if (socket) {
-        socket.write(data)
+        // TCP is a byte stream, not a message stream: if two messages are
+        // written back-to-back they can arrive concatenated in a single
+        // 'data' event on the other end (e.g. "{...}{...}"), which breaks
+        // JSON.parse. Newline-delimit every message and split on it on the
+        // receiving side (see handleIncomingData below) so each write maps
+        // to exactly one parsed message, no matter how the OS batches them.
+        socket.write(data + '\n')
+    }
+}
+
+// Buffers partial/concatenated TCP data per connection and only forwards
+// complete, individual JSON messages to onMessage.
+const incomingBuffers: Map<string, string> = new Map()
+
+function handleIncomingData(
+    id: string,
+    chunk: string,
+    socketSendMessage: (message: string, serverId: string) => void
+) {
+    const buffered = (incomingBuffers.get(id) || '') + chunk
+    const lines = buffered.split('\n')
+    // The last entry is either '' (chunk ended exactly on a delimiter) or
+    // an incomplete message that hasn't fully arrived yet — keep it buffered.
+    incomingBuffers.set(id, lines.pop() ?? '')
+    for (const line of lines) {
+        if (line.length === 0) continue
+        onMessage(line, id, socketSendMessage)
     }
 }
 const server = net.createServer()
@@ -76,7 +102,7 @@ export function connect(port: number, address: string) {
             }
         )
         client.on('data', (data) => {
-            onMessage(data.toString(), connectionId, sendMessage)
+            handleIncomingData(connectionId, data.toString(), sendMessage)
         })
 
         client.on('close', () => {
@@ -101,6 +127,7 @@ export function connect(port: number, address: string) {
                     },
                 })
             }
+            incomingBuffers.delete(connectionId)
             console.log('Connection closed')
         })
         client.on('end', () => {
@@ -134,7 +161,7 @@ server.on('connection', (connectionSocket) => {
 
     connectionSocket.on('data', (data) => {
         console.log('message received')
-        onMessage(data.toString(), id, sendMessage)
+        handleIncomingData(id, data.toString(), sendMessage)
     })
     connectionSocket.on('error', (err) => {
         const player = Array.from(
@@ -174,6 +201,7 @@ server.on('connection', (connectionSocket) => {
                 },
             })
         }
+        incomingBuffers.delete(id)
         connectionSocket.end()
         console.log('client disconnected')
     })
