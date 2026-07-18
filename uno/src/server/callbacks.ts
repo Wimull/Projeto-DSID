@@ -850,6 +850,14 @@ export function onMessage(
                             })
                         }
                     })
+                    // Same gap as in case 'Action': this path runs when the
+                    // HOST itself is the one who performed the move (guests
+                    // vote back via ActionDecision, host tallies here).
+                    // Without this call the host approves everyone else's
+                    // view of the action but never applies it to its own
+                    // game.game, so the host's own hand/deck/pile silently
+                    // stop matching everyone else's.
+                    applyApprovedAction(playerAction)
                 } else {
                     game.connectedPlayersList.forEach((p: ServerSidePlayer) => {
                         if (p.id !== game.user.id) {

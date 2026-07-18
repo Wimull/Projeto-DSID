@@ -378,44 +378,35 @@ export function validateAction(
               card: Card
           }
 ) {
-    const index = game.players.findIndex((p) => p.id === game.playerTurnId)
-    if (action.nextPlayerTurnId)
-        if (action.type === 'draw') {
-            if (
-                action.cardDrawn.id === game.deck[game.deck.length - 1].id &&
-                action.cardDrawn.card === game.deck[game.deck.length - 1].card
-            ) {
-                const nextTurnId =
-                    game.players[
-                        (game.playOrder === 'up' ? index + 1 : index - 1) %
-                            game.players.length
-                    ].id
-                return nextTurnId === action.nextPlayerTurnId ? true : false
-            }
-            return false
-        } else {
-            const player =
-                game.players[
-                    game.players.findIndex((p) => p.id === action.player.id)
-                ]
-            const cardIndex = player.hand.findIndex(
-                (c) => c.id === action.card.id
-            )
-            if (
-                cardIndex !== 1 &&
-                player.hand[cardIndex].card === action.card.card
-            ) {
-                let order = game.playOrder
-                if (action.card.card.includes('Reverse'))
-                    order = game.playOrder === 'up' ? 'down' : 'up'
-                const nextTurnId =
-                    game.players[
-                        (order === 'up' ? index + 1 : index - 1) %
-                            game.players.length
-                    ].id
+    if (!action.nextPlayerTurnId) return false
+    // Despite the field's name, callers actually populate
+    // nextPlayerTurnId with the *current* turn holder's id at the moment
+    // the action was taken (see server-handlers.ts), not a prediction of
+    // who plays next. The previous implementation recomputed its own
+    // guess of the "next" player and compared that against this field,
+    // which compares the wrong things and fails almost every valid
+    // action. What we actually need to check is simpler: does the
+    // action's claimed current-turn player match what we, the validator,
+    // believe the current turn to be?
+    if (action.nextPlayerTurnId !== game.playerTurnId) return false
 
-                return nextTurnId === action.nextPlayerTurnId ? true : false
-            }
-            return false
-        }
+    if (action.type === 'draw') {
+        return (
+            action.cardDrawn.id === game.deck[game.deck.length - 1].id &&
+            action.cardDrawn.card === game.deck[game.deck.length - 1].card
+        )
+    } else {
+        const player =
+            game.players[
+                game.players.findIndex((p) => p.id === action.player.id)
+            ]
+        if (!player) return false
+        const cardIndex = player.hand.findIndex(
+            (c) => c.id === action.card.id
+        )
+        return (
+            cardIndex !== -1 &&
+            player.hand[cardIndex].card === action.card.card
+        )
+    }
 }

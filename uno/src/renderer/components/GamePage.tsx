@@ -60,6 +60,11 @@ export default function GamePage({
 
     function canPlayCard({ id, card }: Card): boolean {
         if (currentPlayerTurnId !== playerId) return false
+        // Drawing isn't a color/value match against the pile — it's always
+        // allowed on your turn. Without this, the color/value checks below
+        // (which don't apply to the deck) always fell through to `false`,
+        // so the draw button never actually worked for anyone.
+        if (card === 'baralho') return true
         if ((card === 'wild' || card === 'wild4') && selectedColor) {
             return true
         }
