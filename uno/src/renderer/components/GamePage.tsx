@@ -60,6 +60,7 @@ export default function GamePage({
 
     function canPlayCard({ id, card }: Card): boolean {
         if (currentPlayerTurnId !== playerId) return false
+
         if (card === 'baralho') return true
         if ((card === 'wild' || card === 'wild4') && selectedColor) {
             return true
