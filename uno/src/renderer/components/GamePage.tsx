@@ -60,11 +60,13 @@ export default function GamePage({
 
     function canPlayCard({ id, card }: Card): boolean {
         if (currentPlayerTurnId !== playerId) return false
+        if (card === 'baralho') return true
         if ((card === 'wild' || card === 'wild4') && selectedColor) {
             return true
         }
 
         const cardColor = card.match(/red|blue|green|yellow/)?.[0]
+        console.log(playedColor, hand, selectedCard)
         if (playedColor === cardColor) return true
 
         const playedValue = playedCard.card.match(
@@ -98,6 +100,7 @@ export default function GamePage({
         setLoading(true)
         setSelectedCard(null)
 
+        console.log(selectedCard.card)
         if (selectedCard.card === 'baralho') {
             const data: { playerHand: Card[]; turnPlayerID: string } =
                 await send('action', {
@@ -162,10 +165,14 @@ export default function GamePage({
                       }
                 )
             ) => {
+                console.log(data)
+
+                if (data.selectedColor) setPlayedColor(data.selectedColor)
                 if (playerId === data.playerId) {
                     setLoading(false)
                     setHand(data.playerHand)
-                } else {
+                }
+                if (playerId !== data.playerId) {
                     setOtherPlayers((players) => {
                         const newPlayers = [...players]
                         newPlayers[
@@ -176,13 +183,15 @@ export default function GamePage({
                 }
                 if (data.isVictory) {
                     setGameResult({
-                        type: hand.length === 0 ? 'victory' : 'defeat',
+                        type:
+                            playerName === data.victoriousPlayerName
+                                ? 'victory'
+                                : 'defeat',
                         winnerName: data.victoriousPlayerName,
                     })
                 }
                 setCurrentPlayerTurnId(data.playerTurnId)
                 setPlayedCard(data.playedCard)
-                if (data.selectedColor) setPlayedColor(data.selectedColor)
             }
         )
 
@@ -615,7 +624,7 @@ export default function GamePage({
                                 {hand.length} cartas
                             </span>
                         </div>
-                        <div className="flex flex-wrap p-2 pb-4 justify-center items-center gap-3 overflow-x-auto overflow-y-clip pb-1">
+                        <div className="flex p-2 pb-4 justify-start items-center gap-3 overflow-x-auto max-w-[80vw] overflow-y-clip pb-1">
                             {hand.map((card, index) => (
                                 <button
                                     key={card.id}
@@ -626,7 +635,7 @@ export default function GamePage({
                                     <img
                                         src={'/' + card.card + '.png'}
                                         alt={card.card}
-                                        className="h-40 w-28 rounded-[20px] object-cover shadow-lg"
+                                        className="min-h-40 min-w-28 h-40 w-28 rounded-[20px] object-cover shadow-lg"
                                     />
                                 </button>
                             ))}

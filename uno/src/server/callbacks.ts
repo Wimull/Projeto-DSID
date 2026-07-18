@@ -60,10 +60,22 @@ export function setPlayerAction(action: PlayerAction) {
 // local state (deck/hand/playedCard/turn) silently fell out of sync every
 // time someone else took a turn. Centralizing it here means both places
 // behave identically.
-function applyApprovedAction(action: PlayerAction) {
+function applyApprovedAction(action: PlayerAction, playerTurnId?: string) {
+    console.trace('applyApprovedAction')
+
+    console.log('applyApprovedAction', { ...action })
     if (action.actionType === 'draw') {
-        const { doNextTurn, game: newGame } = game.drawCard(action.player.id)
-        doNextTurn()
+        const {
+            doNextTurn,
+            game: newGame,
+            nextPlayerTurnId,
+        } = game.drawCard(action.player.id)
+        console.log('draw', {
+            ...newGame,
+            player: [
+                ...newGame.players.map((p) => ({ ...p, hand: [...p.hand] })),
+            ],
+        })
         // Read the drawn card back off newGame (not action.player), since
         // action.player is a snapshot taken before the draw happened and
         // never gets the new card added to its hand.
@@ -78,8 +90,8 @@ function applyApprovedAction(action: PlayerAction) {
                     id: c.id,
                     card: action.player.id === game.user.id ? c.card : 'back',
                 })),
-                playerTurnId: game.game.players.find(
-                    (p) => p.id === game.game.playerTurnId
+                playerTurnId: newGame.players.find(
+                    (p) => p.id === playerAction.playerTurnId
                 )?.clientFakeId,
                 selectedColor: newGame.selectedColor,
                 isVictory: (player?.hand.length ?? 0) === 0,
@@ -89,13 +101,24 @@ function applyApprovedAction(action: PlayerAction) {
                         : undefined,
             },
         })
+        doNextTurn(action.playerTurnId)
     } else {
-        const { doNextTurn, game: newGame } = game.playCard(
+        const {
+            doNextTurn,
+            game: newGame,
+            nextPlayerTurnId,
+        } = game.playCard(
             action.player.id,
             action.cardPlayed,
             action.selectedColor
         )
-        doNextTurn()
+        console.log('play', {
+            ...newGame,
+            player: [
+                ...newGame.players.map((p) => ({ ...p, hand: [...p.hand] })),
+            ],
+        })
+
         newGame.players.forEach((p: ServerSidePlayer) => {
             ipc.send({
                 type: 'push',
@@ -107,16 +130,17 @@ function applyApprovedAction(action: PlayerAction) {
                         id: c.id,
                         card: p.id === game.user.id ? c.card : 'back',
                     })),
-                    playerTurnId: game.game.players.find(
-                        (p) => p.id === game.game.playerTurnId
+                    playerTurnId: newGame.players.find(
+                        (p) => p.id === playerAction.playerTurnId
                     )?.clientFakeId,
-                    selectedColor: action.selectedColor,
+                    selectedColor: newGame.selectedColor,
                     isVictory: p.hand.length === 0,
                     victoriousPlayerName:
                         p.hand.length === 0 ? p.name : undefined,
                 },
             })
         })
+        doNextTurn(action.playerTurnId)
     }
 }
 
@@ -576,13 +600,29 @@ export function onMessage(
             break
         }
         case 'Action': {
-            playerAction = data
             const host = Array.from(
                 game.connectedPlayersList,
                 ([, value]) => value
             ).find((p) => p.isHost)
             if (!host) {
                 break
+            }
+            console.log(data)
+            if (data.actionType === 'draw') {
+                setPlayerAction({
+                    player: data.player,
+                    cardDrawn: data.cardDrawn,
+                    playerTurnId: data.playerTurnId,
+                    actionType: 'draw',
+                })
+            } else if (data.actionType === 'playCard') {
+                setPlayerAction({
+                    player: data.player,
+                    cardPlayed: data.cardPlayed,
+                    playerTurnId: data.playerTurnId,
+                    selectedColor: data.selectedColor,
+                    actionType: 'playCard',
+                })
             }
             if (game.user.isHost) {
                 game.connectedPlayersList.forEach((p) => {
@@ -595,7 +635,9 @@ export function onMessage(
                         cardDrawn: data.cardDrawn,
                         nextPlayerTurnId: data.playerTurnId,
                     })
-                    game.user.actionDecision = decision ? 'pass' : 'notPass'
+                    Array.from(game.connectedPlayersList.values()).find(
+                        (p) => p.id === game.user.id
+                    )!.actionDecision = decision ? 'pass' : 'notPass'
                 } else if (data.actionType === 'playCard') {
                     const decision = game.validateAction({
                         player: data.player,
@@ -604,9 +646,12 @@ export function onMessage(
                         nextPlayerTurnId: data.playerTurnId,
                         selectedColor: data.selectedColor,
                     })
-                    game.user.actionDecision = decision ? 'pass' : 'notPass'
+                    Array.from(game.connectedPlayersList.values()).find(
+                        (p) => p.id === game.user.id
+                    )!.actionDecision = decision ? 'pass' : 'notPass'
                 }
                 const player = game.connectedPlayersList.get(data.player.id)
+                console.log(player)
                 if (player) {
                     game.connectedPlayersList.set(data.player.id, {
                         ...player,
@@ -615,6 +660,7 @@ export function onMessage(
                     let didEveryoneChoose = true
                     let doesPass = 0
                     game.connectedPlayersList.forEach((p: ServerSidePlayer) => {
+                        console.log(p)
                         if (p.actionDecision === 'null') {
                             didEveryoneChoose = false
                         }
@@ -624,8 +670,9 @@ export function onMessage(
                     })
                     if (
                         didEveryoneChoose &&
-                        doesPass >= game.connectedPlayersList.size / 2
+                        doesPass >= game.connectedPlayersList.size / 2 + 1
                     ) {
+                        applyApprovedAction(playerAction)
                         game.connectedPlayersList.forEach(
                             (p: ServerSidePlayer) => {
                                 if (p.id !== game.user.id) {
@@ -654,11 +701,32 @@ export function onMessage(
                                 }
                             }
                         )
-                        // The host approved the action for everyone else —
-                        // it also needs to apply it to its own local state,
-                        // which nothing else here was doing.
-                        applyApprovedAction(playerAction)
-                    } else {
+                    } else if (didEveryoneChoose) {
+                        ipc.send({
+                            type: 'push',
+                            name: 'action',
+                            args: {
+                                playerId: game.user.clientFakeId,
+                                playedCard: game.game.playedCard,
+                                playerHand: game.game.players.find(
+                                    (p) => p.id === game.user.id
+                                )!.hand,
+                                playerTurnId: game.game.players.find(
+                                    (p) => p.id === game.game.playerTurnId
+                                )?.clientFakeId,
+                                selectedColor: game.game.selectedColor,
+                                isVictory: false,
+                                victoriousPlayerName: undefined,
+                            },
+                        })
+                        ipc.send({
+                            type: 'push',
+                            name: 'error',
+                            args: {
+                                type: 'error',
+                                message: 'Ação inválida',
+                            },
+                        })
                         game.connectedPlayersList.forEach(
                             (p: ServerSidePlayer) => {
                                 if (p.id !== game.user.id) {
@@ -677,36 +745,37 @@ export function onMessage(
                         )
                     }
                 }
-            }
-            if (data.actionType === 'draw') {
-                const decision = game.validateAction({
-                    player: data.player,
-                    type: 'draw',
-                    cardDrawn: data.cardDrawn,
-                    nextPlayerTurnId: data.playerTurnId,
-                })
-                sendMessage(host, {
-                    type: 'ActionDecision',
-                    data: {
-                        player: game.user,
-                        doesPass: decision,
-                    },
-                })
-            } else if (data.actionType === 'playCard') {
-                const decision = game.validateAction({
-                    player: data.player,
-                    type: 'play',
-                    card: data.cardPlayed,
-                    nextPlayerTurnId: data.playerTurnId,
-                    selectedColor: data.selectedColor,
-                })
-                sendMessage(host, {
-                    type: 'ActionDecision',
-                    data: {
-                        player: game.user,
-                        doesPass: decision,
-                    },
-                })
+            } else {
+                if (data.actionType === 'draw') {
+                    const decision = game.validateAction({
+                        player: data.player,
+                        type: 'draw',
+                        cardDrawn: data.cardDrawn,
+                        nextPlayerTurnId: data.playerTurnId,
+                    })
+                    sendMessage(host, {
+                        type: 'ActionDecision',
+                        data: {
+                            player: game.user,
+                            doesPass: decision,
+                        },
+                    })
+                } else if (data.actionType === 'playCard') {
+                    const decision = game.validateAction({
+                        player: data.player,
+                        type: 'play',
+                        card: data.cardPlayed,
+                        nextPlayerTurnId: data.playerTurnId,
+                        selectedColor: data.selectedColor,
+                    })
+                    sendMessage(host, {
+                        type: 'ActionDecision',
+                        data: {
+                            player: game.user,
+                            doesPass: decision,
+                        },
+                    })
+                }
             }
             break
         }
@@ -718,7 +787,7 @@ export function onMessage(
                     //@ts-ignore
                     playerAction.actionType === 'playCard')
             ) {
-                applyApprovedAction(playerAction)
+                applyApprovedAction(playerAction, playerAction.playerTurnId)
             } else {
                 ipc.send({
                     type: 'push',
@@ -765,6 +834,24 @@ export function onMessage(
                         })
                         disconnectPlayer(p)
                     })
+                } else {
+                    ipc.send({
+                        type: 'push',
+                        name: 'action',
+                        args: {
+                            playerId: game.user.clientFakeId,
+                            playedCard: game.game.playedCard,
+                            playerHand: game.game.players.find(
+                                (p) => p.id === game.user.id
+                            )!.hand,
+                            playerTurnId: game.game.players.find(
+                                (p) => p.id === game.game.playerTurnId
+                            )?.clientFakeId,
+                            selectedColor: game.game.selectedColor,
+                            isVictory: false,
+                            victoriousPlayerName: undefined,
+                        },
+                    })
                 }
                 //@ts-ignore
             } else if (playerAction.actionType === 'playCard') {
@@ -800,6 +887,24 @@ export function onMessage(
                         })
                         disconnectPlayer(p)
                     })
+                } else {
+                    ipc.send({
+                        type: 'push',
+                        name: 'action',
+                        args: {
+                            playerId: game.user.clientFakeId,
+                            playedCard: game.game.playedCard,
+                            playerHand: game.game.players.find(
+                                (p) => p.id === game.user.id
+                            )!.hand,
+                            playerTurnId: game.game.players.find(
+                                (p) => p.id === game.game.playerTurnId
+                            )?.clientFakeId,
+                            selectedColor: game.game.selectedColor,
+                            isVictory: false,
+                            victoriousPlayerName: undefined,
+                        },
+                    })
                 }
             }
             break
@@ -823,8 +928,9 @@ export function onMessage(
                 })
                 if (
                     didEveryoneChoose &&
-                    doesPass >= game.connectedPlayersList.size / 2
+                    doesPass >= game.connectedPlayersList.size / 2 + 1
                 ) {
+                    applyApprovedAction(playerAction)
                     game.connectedPlayersList.forEach((p: ServerSidePlayer) => {
                         if (p.id !== game.user.id) {
                             sendMessage(p, {
@@ -850,7 +956,32 @@ export function onMessage(
                             })
                         }
                     })
-                } else {
+                } else if (didEveryoneChoose) {
+                    ipc.send({
+                        type: 'push',
+                        name: 'action',
+                        args: {
+                            playerId: game.user.clientFakeId,
+                            playedCard: game.game.playedCard,
+                            playerHand: game.game.players.find(
+                                (p) => p.id === game.user.id
+                            )?.hand,
+                            playerTurnId: game.game.players.find(
+                                (p) => p.id === game.game.playerTurnId
+                            )?.clientFakeId,
+                            selectedColor: game.game.selectedColor,
+                            isVictory: false,
+                            victoriousPlayerName: undefined,
+                        },
+                    })
+                    ipc.send({
+                        type: 'push',
+                        name: 'error',
+                        args: {
+                            type: 'error',
+                            message: 'Ação inválida',
+                        },
+                    })
                     game.connectedPlayersList.forEach((p: ServerSidePlayer) => {
                         if (p.id !== game.user.id) {
                             sendMessage(p, {

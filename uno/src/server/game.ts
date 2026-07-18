@@ -176,7 +176,7 @@ export function disconnectPlayer(playerId: string) {
         if (game.playerTurnId === playerId) {
             // goNextTurn needs the leaving player still in the array to
             // compute their index, so this must run before removing them.
-            goNextTurn(game)
+            goNextTurn({ newGame: game })
         }
         // Same issue as in playCard: .filter() doesn't mutate in place, the
         // result has to be assigned back or the player never actually
@@ -198,8 +198,15 @@ export function startGame(
             ...p,
             isUser: p.id === user.id,
         }))
+        game.players.forEach((p) => {
+            connectedPlayersList.set(p.id, {
+                ...connectedPlayersList.get(p.id)!,
+                hand: p.hand,
+            })
+        })
         return game
     }
+
     game.seed = seed
     game.random = mulberry32(game.seed)
     let deck = [...normalDeck]
@@ -232,22 +239,48 @@ export function startGame(
     game.playerTurnId =
         players[Math.round(Math.random() * 10) % players.length].id
     game.playOrder = 'up'
+    game.players.forEach((p) => {
+        connectedPlayersList.set(p.id, {
+            ...connectedPlayersList.get(p.id)!,
+            hand: p.hand,
+        })
+    })
     return game
 }
-export function goNextTurn(newGame: Game, skipNumber = 0) {
+export function goNextTurn({
+    newGame,
+    skipNumber = 0,
+    playerTurnId,
+}: {
+    newGame: Game
+    skipNumber?: number
+    playerTurnId?: string
+}) {
+    console.trace('goNextTurn')
+    console.log(newGame, playerTurnId)
     const index = newGame.players.findIndex(
         (p) => p.id === newGame.playerTurnId
     )
     newGame.playerTurnId =
+        playerTurnId ||
         newGame.players[
-            (newGame.playOrder === 'up'
-                ? index + 1 + skipNumber
-                : index - (1 + skipNumber)) % newGame.players.length
+            Math.abs(
+                (newGame.playOrder === 'up'
+                    ? index + 1 + skipNumber
+                    : index - (1 + skipNumber)) % newGame.players.length
+            )
         ]!.id
     game = newGame
+    game.players.forEach((p) => {
+        connectedPlayersList.set(p.id, {
+            ...connectedPlayersList.get(p.id)!,
+            hand: p.hand,
+        })
+    })
 }
 
 export function drawFromDeck(newGame: Game) {
+    console.trace('Draw')
     if (newGame.deck.length === 0) {
         let hasCardPlayedTakenOut = false
         newGame.deck = normalDeck
@@ -264,8 +297,8 @@ export function drawFromDeck(newGame: Game) {
             .filter((v) => v)
             .sort((a, b) => 0.5 - newGame.random()) as Card[]
     }
-
-    return newGame.deck.pop()!
+    const card = newGame.deck.pop()!
+    return card
 }
 
 export function playCard(
@@ -286,6 +319,20 @@ export function playCard(
         random: game.random,
         seed: game.seed,
     }
+    console.log('playCard', playerId, {
+        ...newGame,
+        players: newGame.players.map((p) => ({ ...p, hand: [...p.hand] })),
+    })
+    const index = newGame.players.findIndex(
+        (p) => p.id === newGame.playerTurnId
+    )
+    let nextPlayerTurnId =
+        newGame.players[
+            Math.abs(
+                (newGame.playOrder === 'up' ? index + 1 + 0 : index - (1 + 0)) %
+                    newGame.players.length
+            )
+        ]!.id
     const player =
         newGame.players[newGame.players.findIndex((p) => p.id === playerId)]
     // .filter() returns a new array — it doesn't mutate player.hand. The
@@ -296,48 +343,107 @@ export function playCard(
     // (see newGame.playedCard above) and never updated to the card that
     // was just played, so the pile visually never changed.
     newGame.playedCard = { id: cardId, card }
-    newGame.selectedColor =
-        selectedColor ??
-        (card.startsWith('blue')
-            ? 'blue'
-            : card.startsWith('green')
-              ? 'green'
-              : card.startsWith('yellow')
-                ? 'yellow'
-                : 'red')
+    newGame.selectedColor = card.includes('blue')
+        ? 'blue'
+        : card.includes('green')
+          ? 'green'
+          : card.includes('yellow')
+            ? 'yellow'
+            : card.includes('red')
+              ? 'red'
+              : selectedColor || 'blue'
     if (card.includes('Plus2')) {
-        const index = newGame.players.findIndex(
-            (p) => p.id === newGame.playerTurnId
-        )
         const playerToDraw =
             newGame.players[
-                (newGame.playOrder === 'up' ? index + 1 : index - 1) %
-                    newGame.players.length
+                Math.abs(
+                    (newGame.playOrder === 'up' ? index + 1 : index - 1) %
+                        newGame.players.length
+                )
             ]
         for (let i = 0; i < 2; i++) {
             playerToDraw.hand.push(drawFromDeck(newGame))
         }
-        return { game: newGame, doNextTurn: () => goNextTurn(newGame, 1) }
+        nextPlayerTurnId =
+            newGame.players[
+                Math.abs(
+                    (newGame.playOrder === 'up'
+                        ? index + 1 + 1
+                        : index - (1 + 1)) % newGame.players.length
+                )
+            ]!.id
+        return {
+            game: newGame,
+            doNextTurn: (playerTurnId?: string) =>
+                goNextTurn({ newGame, skipNumber: 1, playerTurnId }),
+            nextPlayerTurnId,
+        }
     } else if (card.includes('wild4')) {
         const index = newGame.players.findIndex(
             (p) => p.id === newGame.playerTurnId
         )
         const playerToDraw =
             newGame.players[
-                (newGame.playOrder === 'up' ? index + 1 : index - 1) %
-                    newGame.players.length
+                Math.abs(
+                    (newGame.playOrder === 'up' ? index + 1 : index - 1) %
+                        newGame.players.length
+                )
             ]
         for (let i = 0; i < 4; i++) {
             playerToDraw.hand.push(drawFromDeck(newGame))
         }
-        return { game: newGame, doNextTurn: () => goNextTurn(newGame, 1) }
+        nextPlayerTurnId =
+            newGame.players[
+                Math.abs(
+                    (newGame.playOrder === 'up'
+                        ? index + 1 + 1
+                        : index - (1 + 1)) % newGame.players.length
+                )
+            ]!.id
+        return {
+            game: newGame,
+            doNextTurn: (playerTurnId?: string) =>
+                goNextTurn({ newGame, skipNumber: 1, playerTurnId }),
+            nextPlayerTurnId,
+        }
     } else if (card.includes('Stop')) {
-        return { game: newGame, doNextTurn: () => goNextTurn(newGame, 1) }
+        nextPlayerTurnId =
+            newGame.players[
+                Math.abs(
+                    (newGame.playOrder === 'up'
+                        ? index + 1 + 1
+                        : index - (1 + 1)) % newGame.players.length
+                )
+            ]!.id
+        return {
+            game: newGame,
+            doNextTurn: (playerTurnId?: string) =>
+                goNextTurn({ newGame, skipNumber: 1, playerTurnId }),
+            nextPlayerTurnId,
+        }
     } else if (card.includes('Reverse')) {
         newGame.playOrder = newGame.playOrder === 'up' ? 'down' : 'up'
-        return { game: newGame, doNextTurn: () => goNextTurn(newGame) }
+
+        nextPlayerTurnId =
+            newGame.players[
+                Math.abs(
+                    (newGame.playOrder === 'up'
+                        ? index - (1 + 0)
+                        : index + 1 + 0) % newGame.players.length
+                )
+            ]!.id
+        return {
+            game: newGame,
+            doNextTurn: (playerTurnId?: string) =>
+                goNextTurn({ newGame, playerTurnId }),
+            nextPlayerTurnId,
+        }
     } else {
-        return { game: newGame, doNextTurn: () => goNextTurn(newGame) }
+        return {
+            game: newGame,
+            doNextTurn: (playerTurnId?: string) =>
+                goNextTurn({ newGame, playerTurnId }),
+            nextPlayerTurnId,
+        }
     }
 }
 
@@ -355,11 +461,34 @@ export function drawCard(playerId: string) {
         random: game.random,
         seed: game.seed,
     }
+    console.log('drawCard', playerId, {
+        ...newGame,
+        players: newGame.players.map((p) => ({ ...p, hand: [...p.hand] })),
+    })
     const player =
         newGame.players[newGame.players.findIndex((p) => p.id === playerId)]
+    const newPlayer = {
+        ...player,
+        hand: player.hand.map((c) => ({ ...c })),
+    }
     const cardDrawn = drawFromDeck(newGame)
-    player.hand.push(cardDrawn)
-    return { cardDrawn, game: newGame, doNextTurn: () => goNextTurn(newGame) }
+    newPlayer.hand.push(cardDrawn)
+    const index = newGame.players.findIndex((p) => p.id === playerId)
+    newGame.players[index].hand = newPlayer.hand
+    const nextPlayerTurnId =
+        newGame.players[
+            Math.abs(
+                (newGame.playOrder === 'up' ? index + 1 + 0 : index - (1 + 0)) %
+                    newGame.players.length
+            )
+        ]!.id
+    return {
+        cardDrawn,
+        game: newGame,
+        doNextTurn: (playerTurnId?: string) =>
+            goNextTurn({ newGame, playerTurnId }),
+        nextPlayerTurnId,
+    }
 }
 
 export function validateAction(
@@ -378,18 +507,29 @@ export function validateAction(
               card: Card
           }
 ) {
+    console.trace('validateAction')
+    console.log(action, { ...game, players: [...game.players] })
     const index = game.players.findIndex((p) => p.id === game.playerTurnId)
     if (action.nextPlayerTurnId)
         if (action.type === 'draw') {
+            console.log(action.cardDrawn, [...game.deck])
             if (
                 action.cardDrawn.id === game.deck[game.deck.length - 1].id &&
                 action.cardDrawn.card === game.deck[game.deck.length - 1].card
             ) {
                 const nextTurnId =
                     game.players[
-                        (game.playOrder === 'up' ? index + 1 : index - 1) %
-                            game.players.length
+                        Math.abs(
+                            (game.playOrder === 'up' ? index + 1 : index - 1) %
+                                game.players.length
+                        )
                     ].id
+                console.log(
+                    'validate: ',
+                    nextTurnId,
+                    action.nextPlayerTurnId,
+                    nextTurnId === action.nextPlayerTurnId
+                )
                 return nextTurnId === action.nextPlayerTurnId ? true : false
             }
             return false
@@ -401,20 +541,46 @@ export function validateAction(
             const cardIndex = player.hand.findIndex(
                 (c) => c.id === action.card.id
             )
+            console.log(
+                cardIndex,
+                player.hand[cardIndex].card,
+                action.card.card
+            )
             if (
-                cardIndex !== 1 &&
+                cardIndex !== -1 &&
                 player.hand[cardIndex].card === action.card.card
             ) {
                 let order = game.playOrder
                 if (action.card.card.includes('Reverse'))
                     order = game.playOrder === 'up' ? 'down' : 'up'
-                const nextTurnId =
+                let nextPlayerTurnId =
                     game.players[
-                        (order === 'up' ? index + 1 : index - 1) %
-                            game.players.length
+                        Math.abs(
+                            (order === 'up' ? index + 1 : index - 1) %
+                                game.players.length
+                        )
                     ].id
-
-                return nextTurnId === action.nextPlayerTurnId ? true : false
+                if (
+                    player.hand[cardIndex].card.includes('wild4') ||
+                    player.hand[cardIndex].card.includes('Stop') ||
+                    player.hand[cardIndex].card.includes('Plus2')
+                ) {
+                    nextPlayerTurnId =
+                        game.players[
+                            Math.abs(
+                                (game.playOrder === 'up'
+                                    ? index + 1 + 1
+                                    : index - (1 + 1)) % game.players.length
+                            )
+                        ]!.id
+                }
+                console.log(
+                    'validate: ',
+                    nextPlayerTurnId,
+                    action.nextPlayerTurnId,
+                    nextPlayerTurnId === action.nextPlayerTurnId
+                )
+                return nextPlayerTurnId === action.nextPlayerTurnId
             }
             return false
         }

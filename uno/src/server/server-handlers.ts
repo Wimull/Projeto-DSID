@@ -57,6 +57,7 @@ function serverHandlers() {
             card: Card
             selectedColor?: 'red' | 'green' | 'yellow' | 'blue'
         }) => {
+            console.log(data)
             if (game.user.isHost) {
                 game.connectedPlayersList.forEach((p) => {
                     p.actionDecision = 'null'
@@ -70,12 +71,16 @@ function serverHandlers() {
                 }
             }
             if (data.type === 'draw') {
-                const { game: newGame, cardDrawn } = game.drawCard(game.user.id)
+                const {
+                    game: newGame,
+                    cardDrawn,
+                    nextPlayerTurnId,
+                } = game.drawCard(game.user.id)
                 setPlayerAction({
-                    player: game.user,
+                    player: newGame.players.find((p) => p.id === game.user.id)!,
                     actionType: 'draw',
                     cardDrawn,
-                    playerTurnId: newGame.playerTurnId,
+                    playerTurnId: nextPlayerTurnId,
                 })
                 game.connectedPlayersList.forEach((p) => {
                     if (p.id !== game.user.id) {
@@ -85,24 +90,24 @@ function serverHandlers() {
                                 actionType: 'draw',
                                 player: game.user,
                                 cardDrawn,
-                                playerTurnId: newGame.playerTurnId,
+                                playerTurnId: nextPlayerTurnId,
                                 game: newGame,
                             },
                         })
                     }
                 })
             } else {
-                const { game: newGame } = game.playCard(
+                const { game: newGame, nextPlayerTurnId } = game.playCard(
                     game.user.id,
                     data.card,
                     data.selectedColor
                 )
                 setPlayerAction({
-                    player: game.user,
+                    player: newGame.players.find((p) => p.id === game.user.id)!,
                     actionType: 'playCard',
                     cardPlayed: data.card,
                     selectedColor: data.selectedColor,
-                    playerTurnId: newGame.playerTurnId,
+                    playerTurnId: nextPlayerTurnId,
                 })
                 game.connectedPlayersList.forEach((p) => {
                     if (p.id !== game.user.id) {
@@ -113,7 +118,7 @@ function serverHandlers() {
                                 player: game.user,
                                 cardPlayed: data.card,
                                 selectedColor: data.selectedColor,
-                                playerTurnId: newGame.playerTurnId,
+                                playerTurnId: nextPlayerTurnId,
                                 game: newGame,
                             },
                         })
