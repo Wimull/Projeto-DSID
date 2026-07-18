@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 type Card = { id: string; card: string }
 
@@ -51,6 +51,14 @@ export default function GamePage({
     const [otherPlayers, setOtherPlayers] = useState<Player[]>(
         starterPlayers.filter((p) => !p.isUser)
     )
+    const hasAbortedRef = useRef(false)
+
+    const abortGame = (reason: string) => {
+        if (hasAbortedRef.current) return
+        hasAbortedRef.current = true
+        alert('Partida abortada. Razão: ' + reason)
+        onReturnHome()
+    }
 
     function canPlayCard({ id, card }: Card): boolean {
         if (currentPlayerTurnId !== playerId) return false
@@ -140,6 +148,13 @@ export default function GamePage({
     }
 
     useEffect(() => {
+        if (gameResult) return
+        if (otherPlayers.length === 0) {
+            abortGame('não há mais jogadores conectados.')
+        }
+    }, [gameResult, otherPlayers.length])
+
+    useEffect(() => {
         listen(
             'action',
             (
@@ -216,8 +231,7 @@ export default function GamePage({
                     setCurrentPlayerTurnId(data.playerTurnId)
                 }
                 if (data.type === 'abort') {
-                    alert('Partida abortada. Razão: ' + data.message)
-                    onReturnHome()
+                    abortGame(data.message)
                 }
                 if (data.type === 'error') {
                     alert('Um erro aconteceu: ' + data.message)
@@ -296,7 +310,7 @@ export default function GamePage({
                                 </p>
                                 <button
                                     type="button"
-                                    className="mt-6 w-full rounded-xl bg-red-500 px-4 py-3 font-semibold text-white transition hover:bg-red-600"
+                                    className="mt-6 w-full rounded-xl bg-red-500 px-4 py-3 font-semibold text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                                     onClick={handleReturnToLobby}
                                 >
                                     Voltar para o lobby
@@ -349,12 +363,16 @@ export default function GamePage({
 
                                         <button
                                             type="button"
-                                            className={`relative z-20 rounded-2xl transition-all hover:scale-110 hover:z-20 border border-red-500 border-4 ${selectedCard?.card === 'baralho' ? 'scale-110 z-20' : ''}`}
+                                            className={`relative z-20 rounded-2xl border border-red-500 border-4 transition-all hover:scale-110 hover:z-20 disabled:cursor-not-allowed disabled:opacity-60 ${selectedCard?.card === 'baralho' ? 'scale-110 z-20' : ''}`}
                                             onClick={() =>
                                                 onClickCard({
                                                     card: 'baralho',
                                                     id: 'baralho',
                                                 })
+                                            }
+                                            disabled={
+                                                loading ||
+                                                currentPlayerTurnId !== playerId
                                             }
                                         >
                                             <img
@@ -381,38 +399,54 @@ export default function GamePage({
                                         className={`flex flex-wrap items-center justify-center gap-3 rounded-[24px] border border-slate-200 bg-white/90 px-4 py-3 shadow-sm transition-opacity ${showColorPicker ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                                     >
                                         <button
-                                            className="rounded-lg bg-red-500 px-4 py-2 font-semibold text-white transition hover:bg-red-600"
+                                            className="rounded-lg bg-red-500 px-4 py-2 font-semibold text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                                             onClick={() => {
                                                 setSelectedColor('red')
                                                 setShowColorPicker(false)
                                             }}
+                                            disabled={
+                                                loading ||
+                                                currentPlayerTurnId !== playerId
+                                            }
                                         >
                                             Vermelho
                                         </button>
                                         <button
-                                            className="rounded-lg bg-blue-500 px-4 py-2 font-semibold text-white transition hover:bg-blue-600"
+                                            className="rounded-lg bg-blue-500 px-4 py-2 font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
                                             onClick={() => {
                                                 setSelectedColor('blue')
                                                 setShowColorPicker(false)
                                             }}
+                                            disabled={
+                                                loading ||
+                                                currentPlayerTurnId !== playerId
+                                            }
                                         >
                                             Azul
                                         </button>
                                         <button
-                                            className="rounded-lg bg-green-500 px-4 py-2 font-semibold text-white transition hover:bg-green-600"
+                                            className="rounded-lg bg-green-500 px-4 py-2 font-semibold text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60"
                                             onClick={() => {
                                                 setSelectedColor('green')
                                                 setShowColorPicker(false)
                                             }}
+                                            disabled={
+                                                loading ||
+                                                currentPlayerTurnId !== playerId
+                                            }
                                         >
                                             Verde
                                         </button>
                                         <button
-                                            className="rounded-lg bg-yellow-500 px-4 py-2 font-semibold text-white transition hover:bg-yellow-600"
+                                            className="rounded-lg bg-yellow-500 px-4 py-2 font-semibold text-white transition hover:bg-yellow-600 disabled:cursor-not-allowed disabled:opacity-60"
                                             onClick={() => {
                                                 setSelectedColor('yellow')
                                                 setShowColorPicker(false)
                                             }}
+                                            disabled={
+                                                loading ||
+                                                currentPlayerTurnId !== playerId
+                                            }
                                         >
                                             Amarelo
                                         </button>
@@ -534,12 +568,16 @@ export default function GamePage({
 
                                         <button
                                             type="button"
-                                            className={`relative z-20 rounded-2xl transition-all hover:scale-110 hover:z-20 border border-red-500 border-4 ${selectedCard?.card === 'baralho' ? 'scale-110 z-20' : ''}`}
+                                            className={`relative z-20 rounded-2xl border border-red-500 border-4 transition-all hover:scale-110 hover:z-20 disabled:cursor-not-allowed disabled:opacity-60 ${selectedCard?.card === 'baralho' ? 'scale-110 z-20' : ''}`}
                                             onClick={() =>
                                                 onClickCard({
                                                     card: 'baralho',
                                                     id: 'baralho',
                                                 })
+                                            }
+                                            disabled={
+                                                loading ||
+                                                currentPlayerTurnId !== playerId
                                             }
                                         >
                                             <img
@@ -566,38 +604,54 @@ export default function GamePage({
                                         className={`flex flex-wrap items-center justify-center gap-3 rounded-[24px] border border-slate-200 bg-white/90 px-4 py-3 shadow-sm transition-opacity ${showColorPicker ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                                     >
                                         <button
-                                            className="rounded-lg bg-red-500 px-4 py-2 font-semibold text-white transition hover:bg-red-600"
+                                            className="rounded-lg bg-red-500 px-4 py-2 font-semibold text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                                             onClick={() => {
                                                 setSelectedColor('red')
                                                 setShowColorPicker(false)
                                             }}
+                                            disabled={
+                                                loading ||
+                                                currentPlayerTurnId !== playerId
+                                            }
                                         >
                                             Vermelho
                                         </button>
                                         <button
-                                            className="rounded-lg bg-blue-500 px-4 py-2 font-semibold text-white transition hover:bg-blue-600"
+                                            className="rounded-lg bg-blue-500 px-4 py-2 font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
                                             onClick={() => {
                                                 setSelectedColor('blue')
                                                 setShowColorPicker(false)
                                             }}
+                                            disabled={
+                                                loading ||
+                                                currentPlayerTurnId !== playerId
+                                            }
                                         >
                                             Azul
                                         </button>
                                         <button
-                                            className="rounded-lg bg-green-500 px-4 py-2 font-semibold text-white transition hover:bg-green-600"
+                                            className="rounded-lg bg-green-500 px-4 py-2 font-semibold text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60"
                                             onClick={() => {
                                                 setSelectedColor('green')
                                                 setShowColorPicker(false)
                                             }}
+                                            disabled={
+                                                loading ||
+                                                currentPlayerTurnId !== playerId
+                                            }
                                         >
                                             Verde
                                         </button>
                                         <button
-                                            className="rounded-lg bg-yellow-500 px-4 py-2 font-semibold text-white transition hover:bg-yellow-600"
+                                            className="rounded-lg bg-yellow-500 px-4 py-2 font-semibold text-white transition hover:bg-yellow-600 disabled:cursor-not-allowed disabled:opacity-60"
                                             onClick={() => {
                                                 setSelectedColor('yellow')
                                                 setShowColorPicker(false)
                                             }}
+                                            disabled={
+                                                loading ||
+                                                currentPlayerTurnId !== playerId
+                                            }
                                         >
                                             Amarelo
                                         </button>
@@ -620,9 +674,13 @@ export default function GamePage({
                             {hand.map((card, index) => (
                                 <button
                                     key={card.id}
-                                    className={`rounded-2xl transition-all hover:scale-110 hover:z-20 ${selectedCard?.id === card.id ? 'scale-110 border-4 border-red-500 z-20' : ''}`}
+                                    className={`rounded-2xl transition-all hover:scale-110 hover:z-20 disabled:cursor-not-allowed disabled:opacity-60 ${selectedCard?.id === card.id ? 'scale-110 border-4 border-red-500 z-20' : ''}`}
                                     type="button"
                                     onClick={() => onClickCard(card)}
+                                    disabled={
+                                        loading ||
+                                        currentPlayerTurnId !== playerId
+                                    }
                                 >
                                     <img
                                         src={'/' + card.card + '.png'}
@@ -639,7 +697,7 @@ export default function GamePage({
                                 baralho.
                             </p>
                             <button
-                                className={`rounded-xl px-4 py-2 text-lg font-bold text-white transition ${selectedCard?.card?.startsWith('wild') && selectedColor ? (selectedColor === 'blue' ? 'bg-blue-500' : selectedColor === 'green' ? 'bg-green-500' : selectedColor === 'yellow' ? 'bg-yellow-500' : selectedColor === 'red' ? 'bg-red-700' : 'bg-blue-500') : 'bg-red-500 hover:bg-red-600'}`}
+                                className={`rounded-xl px-4 py-2 text-lg font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${selectedCard?.card?.startsWith('wild') && selectedColor ? (selectedColor === 'blue' ? 'bg-blue-500' : selectedColor === 'green' ? 'bg-green-500' : selectedColor === 'yellow' ? 'bg-yellow-500' : selectedColor === 'red' ? 'bg-red-700' : 'bg-blue-500') : 'bg-red-500 hover:bg-red-600'}`}
                                 type="button"
                                 onClick={handlePlaySelectedCard}
                                 disabled={
@@ -648,7 +706,8 @@ export default function GamePage({
                                         canPlayCard(selectedCard) ||
                                         selectedCard.card === 'baralho'
                                     ) ||
-                                    currentPlayerTurnId !== playerId
+                                    currentPlayerTurnId !== playerId ||
+                                    loading
                                 }
                             >
                                 {loading

@@ -334,7 +334,7 @@ export default function LobbyPage({
 
                                     <button
                                         type="button"
-                                        className="w-full rounded-xl bg-red-500 px-4 py-3 font-semibold text-white transition hover:bg-red-600"
+                                        className="w-full rounded-xl bg-red-500 px-4 py-3 font-semibold text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                                         onClick={handleContinue}
                                         disabled={loading}
                                     >
@@ -418,7 +418,7 @@ export default function LobbyPage({
 
                                     <button
                                         type="button"
-                                        className={`w-full rounded-xl px-4 py-3 font-semibold text-white transition ${
+                                        className={`w-full rounded-xl px-4 py-3 font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
                                             isHost && allPlayersReady
                                                 ? 'bg-slate-900 hover:bg-slate-700'
                                                 : 'cursor-not-allowed bg-slate-400'
@@ -441,7 +441,7 @@ export default function LobbyPage({
 
                                     <button
                                         type="button"
-                                        className={`w-full rounded-xl px-4 py-3 font-semibold transition ${
+                                        className={`w-full rounded-xl px-4 py-3 font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
                                             isReady
                                                 ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                                                 : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
@@ -458,7 +458,7 @@ export default function LobbyPage({
 
                                     <button
                                         type="button"
-                                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-100"
+                                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                                         onClick={onBackToHome}
                                         disabled={loading}
                                     >

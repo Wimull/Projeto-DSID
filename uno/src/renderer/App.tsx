@@ -12,7 +12,7 @@ import { Card } from '../server/types'
 export default function App() {
     const [connected, setConnected] = useState(false)
     const [currPage, setCurrPage] = useState<'home' | 'lobby' | 'game'>('home')
-    const [lobbyAddress, setLobbyAddress] = useState('192.168.0.10:8080')
+    const [lobbyAddress, setLobbyAddress] = useState('')
     const [createdLobby, setCreatedLobby] = useState(false)
     const [players, setPlayers] = useState<Player[]>([])
     const [hasJoined, setHasJoined] = useState(false)

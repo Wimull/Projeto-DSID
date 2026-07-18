@@ -1,4 +1,4 @@
-import React, {useEffect} from 'react'
+import React, { useEffect } from 'react'
 
 const cardAssets = ['/red0.png', '/blue0.png', '/yellow0.png', '/green0.png']
 
@@ -15,21 +15,15 @@ export default function HomePage({
     onJoinLobby,
     onCreateLobby,
 }: HomePageProps) {
-
     useEffect(() => {
-
-        listen("error", (data:  {
-            type: "error"
-            message: string
-        }) => {
-            if (data.type === "error"){
-                alert("Um erro aconteceu: " + data.message)
+        listen('error', (data: { type: 'error'; message: string }) => {
+            if (data.type === 'error') {
+                alert('Um erro aconteceu: ' + data.message)
             }
-
         })
 
         return () => {
-            unlisten("error")
+            unlisten('error')
         }
     }, [])
     return (
@@ -108,7 +102,7 @@ export default function HomePage({
 
                                 <button
                                     type="button"
-                                    className="w-full rounded-xl bg-red-500 px-4 py-3 font-semibold text-white transition hover:bg-red-600"
+                                    className="w-full rounded-xl bg-red-500 px-4 py-3 font-semibold text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                                     onClick={onJoinLobby}
                                 >
                                     Entrar no lobby
@@ -124,7 +118,7 @@ export default function HomePage({
 
                                 <button
                                     type="button"
-                                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-100"
+                                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                                     onClick={onCreateLobby}
                                 >
                                     Criar lobby
