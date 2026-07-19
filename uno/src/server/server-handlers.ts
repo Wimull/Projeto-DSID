@@ -39,17 +39,13 @@ function serverHandlers() {
         disconnect: async () => {
             game.connectedPlayersList.forEach((p) => {
                 if (p.id !== game.user.id) {
-                    game.disconnectPlayer(p.id)
+                    disconnectPlayer(p)
                     sendMessage(p, {
                         type: 'Disconnect',
                         data: { player: game.user },
                     })
                 }
             })
-            connections.forEach((s) => {
-                s.end()
-            })
-            connections.clear()
             return
         },
         action: async (data: {
@@ -175,7 +171,7 @@ function serverHandlers() {
             game.connectedPlayersList.set(game.user.id, game.user)
             ensureLeader({ notify: false })
             return {
-                port: SERVER_PORT,
+                address: `${SERVER_ADDRESS}:${SERVER_PORT}`,
                 playerId: game.user.clientFakeId,
             }
         },
@@ -197,20 +193,26 @@ function serverHandlers() {
             const ip = lobbyIp.split(':')
             const address = ip[ip.length - 2]
             const port = ip[ip.length - 1]
-            connect(parseInt(port), address).then(
-                ([success, serverId]: any) => {
-                    if (!success) return
-                    socketSendMessage(
-                        JSON.stringify({
-                            type: 'TryConnect',
-                            data: {
-                                player: game.user,
-                            },
-                        }),
-                        serverId
-                    )
-                }
+            let isSuccess = true
+            const [success, serverId]: any = await connect(
+                parseInt(port),
+                address
             )
+            if (!success) {
+                isSuccess = false
+                return
+            }
+            socketSendMessage(
+                JSON.stringify({
+                    type: 'TryConnect',
+                    data: {
+                        player: game.user,
+                    },
+                }),
+                serverId
+            )
+
+            return { error: isSuccess ? undefined : 'Endereço Inválido' }
         },
     }
     return handlers

@@ -119,11 +119,12 @@ export function connect(port: number, address: string) {
                     name: 'error',
                     args: {
                         type: 'disconnect',
-                        playerId: Array.from(
-                            game.connectedPlayersList,
-                            ([k, v]) => v
-                        ).find((p) => p.address === address && p.port === port)!
-                            .clientFakeId,
+                        playerId:
+                            Array.from(
+                                game.connectedPlayersList,
+                                ([k, v]) => v
+                            ).find((p) => p.serverId === connectionId)
+                                ?.clientFakeId || '',
                     },
                 })
             }
@@ -140,7 +141,7 @@ export function connect(port: number, address: string) {
             const player = Array.from(
                 game.connectedPlayersList,
                 ([k, v]) => v
-            ).find((p) => p.address === address && p.port === port)
+            ).find((p) => p.serverId === connectionId)
             if (player) {
                 if (player.isHost) startLeaderElection()
                 game.disconnectPlayer(player.id)

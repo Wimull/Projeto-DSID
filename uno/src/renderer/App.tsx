@@ -22,14 +22,13 @@ export default function App() {
         card: '',
         id: '',
     })
-    const [userPort, setUserPort] = useState('')
+    const [userAddress, setUserAddress] = useState('')
 
     const handleReturnHome = async () => {
-        if (hasJoined) {
-            await send('disconnect', {}).catch((e) => {
-                alert('Erro ao tentar voltar para a tela inicial: ' + e.message)
-            })
-        }
+        await send('disconnect', {}).catch((e) => {
+            alert('Erro ao tentar voltar para a tela inicial: ' + e.message)
+        })
+
         setPlayers([])
         setHasJoined(false)
         setStarterPlayerTurnId('')
@@ -90,8 +89,8 @@ export default function App() {
                 }
                 lobbyIP={lobbyAddress}
                 starterHasJoined={hasJoined}
-                port={userPort}
-                onPortChange={setUserPort}
+                address={userAddress}
+                onAddressChange={setUserAddress}
             />
         )
     }

@@ -48,9 +48,15 @@ export default function GamePage({
     const [hand, setHand] = useState<Card[]>(
         starterPlayers.find((p) => p.isUser)?.hand || []
     )
-    const [otherPlayers, setOtherPlayers] = useState<Player[]>(
-        starterPlayers.filter((p) => !p.isUser)
-    )
+    const [players, setPlayers] = useState<Player[]>(starterPlayers)
+    const player1Index = players.findIndex((p) => p.isUser)!
+    const [player2Index, player3Index, player4Index] = [
+        (player1Index + 1) % players.length,
+        (player1Index + 2) % players.length,
+        (player1Index + 3) % players.length,
+    ]
+    console.log(players)
+
     const hasAbortedRef = useRef(false)
 
     const abortGame = (reason: string) => {
@@ -131,17 +137,9 @@ export default function GamePage({
         setSelectedCard(null)
         setShowColorPicker(false)
         onReturnToLobby([
-            {
-                hand,
-                id: playerId,
-                isHost,
-                name: playerName,
-                isUser: true,
-                isReady: false,
-            },
-            ...otherPlayers.map((p) => ({
+            ...players.map((p) => ({
                 ...p,
-                isUser: false,
+                isUser: p.id === playerId,
                 isReady: false,
             })),
         ])
@@ -149,10 +147,10 @@ export default function GamePage({
 
     useEffect(() => {
         if (gameResult) return
-        if (otherPlayers.length === 0) {
+        if (players.length === 1) {
             abortGame('não há mais jogadores conectados.')
         }
-    }, [gameResult, otherPlayers.length])
+    }, [gameResult, players.length])
 
     useEffect(() => {
         listen(
@@ -179,15 +177,15 @@ export default function GamePage({
                     setLoading(false)
                     setHand(data.playerHand)
                 }
-                if (playerId !== data.playerId) {
-                    setOtherPlayers((players) => {
-                        const newPlayers = [...players]
-                        newPlayers[
-                            newPlayers.findIndex((p) => p.id === data.playerId)
-                        ].hand = data.playerHand
-                        return newPlayers
-                    })
-                }
+
+                setPlayers((players) => {
+                    const newPlayers = [...players]
+                    newPlayers[
+                        newPlayers.findIndex((p) => p.id === data.playerId)
+                    ].hand = data.playerHand
+                    return newPlayers
+                })
+
                 if (data.isVictory) {
                     setGameResult({
                         type:
@@ -221,7 +219,7 @@ export default function GamePage({
                       }
             ) => {
                 if (data.type === 'disconnect') {
-                    setOtherPlayers((players) => {
+                    setPlayers((players) => {
                         let newPlayers = [...players]
                         newPlayers = newPlayers.filter(
                             (p) => p.id !== data.playerId
@@ -243,22 +241,22 @@ export default function GamePage({
             if (playerId === data.playerId) setIsHost(true)
             else {
                 setIsHost(false)
-                setOtherPlayers((players) => {
-                    const newPlayers = [...players]
-                    return newPlayers.map((p) => {
-                        if (p.id === data.playerId) {
-                            return {
-                                ...p,
-                                isHost: true,
-                            }
-                        }
+            }
+            setPlayers((players) => {
+                const newPlayers = [...players]
+                return newPlayers.map((p) => {
+                    if (p.id === data.playerId) {
                         return {
                             ...p,
-                            isHost: false,
+                            isHost: true,
                         }
-                    })
+                    }
+                    return {
+                        ...p,
+                        isHost: false,
+                    }
                 })
-            }
+            })
         })
 
         return () => {
@@ -284,7 +282,7 @@ export default function GamePage({
                         <div className="rounded-full bg-white/20 px-4 py-2 text-sm font-semibold">
                             {currentPlayerTurnId === playerId
                                 ? 'Sua Vez'
-                                : `Vez de: ${otherPlayers[otherPlayers.findIndex((p) => p.id === currentPlayerTurnId)]?.name || 'Erro'}`}
+                                : `Vez de: ${players[players.findIndex((p) => p.id === currentPlayerTurnId)]?.name || 'Erro'}`}
                         </div>
                     </div>
                 </header>
@@ -318,22 +316,26 @@ export default function GamePage({
                             </div>
                         </div>
                     )}
-                    {otherPlayers.length === 1 ? (
+                    {players.length === 2 ? (
                         <>
                             <div className="relative z-10 mb-4 flex flex-col items-center rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
                                 <h2 className="text-lg font-bold text-slate-800">
-                                    {otherPlayers[0].name}
+                                    {players[player2Index].name}
                                 </h2>
                                 <div className="mt-2 flex max-w-full gap-3 overflow-x-auto pb-1">
-                                    {otherPlayers[0].hand.map((card, index) => (
-                                        <div key={index}>
-                                            <img
-                                                src={'/' + card.card + '.png'}
-                                                alt={card.card}
-                                                className="h-24 w-16 rounded-xl object-cover shadow-md"
-                                            />
-                                        </div>
-                                    ))}
+                                    {players[player2Index].hand.map(
+                                        (card, index) => (
+                                            <div key={index}>
+                                                <img
+                                                    src={
+                                                        '/' + card.card + '.png'
+                                                    }
+                                                    alt={card.card}
+                                                    className="h-24 w-16 rounded-xl object-cover shadow-md"
+                                                />
+                                            </div>
+                                        )
+                                    )}
                                 </div>
                             </div>
                             <div className="relative flex min-h-[360px] flex-col justify-between lg:justify-center">
@@ -456,13 +458,13 @@ export default function GamePage({
                         </>
                     ) : (
                         <>
-                            {otherPlayers[1] && (
+                            {players[player3Index] && (
                                 <div className="relative z-10 mb-4 flex flex-col items-center rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
                                     <h2 className="text-lg font-bold text-slate-800">
-                                        {otherPlayers[1].name}
+                                        {players[player3Index].name}
                                     </h2>
                                     <div className="mt-2 flex max-w-full gap-3 overflow-x-auto pb-1">
-                                        {otherPlayers[1].hand.map(
+                                        {players[player3Index].hand.map(
                                             (card, index) => (
                                                 <div key={index}>
                                                     <img
@@ -482,11 +484,11 @@ export default function GamePage({
                             )}
 
                             <div className="relative flex min-h-[360px] flex-col justify-between lg:justify-center">
-                                {otherPlayers[0] && (
+                                {players[player2Index] && (
                                     <div className="absolute left-0 h-auto    top-1/2 z-10 hidden -translate-y-1/2 lg:block">
                                         <div className="flex items-center h-auto gap-3 rounded-[24px] border border-white/70 bg-white/80 p-3 shadow-sm backdrop-blur">
                                             <div className="flex max-h-[260px] flex-col gap-3 overflow-y-auto pr-1">
-                                                {otherPlayers[0].hand.map(
+                                                {players[player2Index].hand.map(
                                                     (card, index) => (
                                                         <div
                                                             key={index}
@@ -506,20 +508,20 @@ export default function GamePage({
                                                 )}
                                             </div>
                                             <h2 className="text-sm font-bold text-slate-700">
-                                                {otherPlayers[0].name}
+                                                {players[player2Index].name}
                                             </h2>
                                         </div>
                                     </div>
                                 )}
 
-                                {otherPlayers[2] && (
+                                {players[player4Index] && (
                                     <div className="absolute right-0 h-auto    top-1/2 z-10 hidden -translate-y-1/2 lg:block">
                                         <div className="flex items-center h-auto gap-3 rounded-[24px] border border-white/70 bg-white/80 p-3 shadow-sm backdrop-blur">
                                             <h2 className="text-sm font-bold text-slate-700">
-                                                {otherPlayers[2].name}
+                                                {players[player4Index].name}
                                             </h2>
                                             <div className="flex max-h-[260px]  flex-col gap-3 overflow-y-auto pr-1">
-                                                {otherPlayers[2].hand.map(
+                                                {players[player4Index].hand.map(
                                                     (card, index) => (
                                                         <div
                                                             key={index}

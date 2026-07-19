@@ -17,8 +17,8 @@ type LobbyPageProps = {
     starterPlayerId: string
     lobbyIP: string
     starterHasJoined: boolean
-    port: string
-    onPortChange: (v: string) => void
+    address: string
+    onAddressChange: (v: string) => void
 }
 
 export default function LobbyPage({
@@ -30,8 +30,8 @@ export default function LobbyPage({
     starterPlayerId,
     starterPlayerName,
     starterHasJoined,
-    port,
-    onPortChange,
+    address,
+    onAddressChange,
 }: LobbyPageProps) {
     const [loading, setLoading] = useState(false)
     const [playerName, setPlayerName] = useState(starterPlayerName)
@@ -100,12 +100,12 @@ export default function LobbyPage({
         if (createdLobby) {
             const data: {
                 playerId: string
-                port: string
+                address: string
             } = await send('createLobby', { playerName }).catch((e) => {
                 alert('Um erro aconteceu ao tentar criar a sala: ' + e.message)
                 setLoading(false)
             })
-            onPortChange(data.port)
+            onAddressChange(data.address)
             setConnectedPlayers([
                 {
                     name: playerName,
@@ -121,21 +121,27 @@ export default function LobbyPage({
             const data: any = await send('connectToLobby', {
                 ip: lobbyIP,
                 playerName,
-            }).catch((e) => {
+            })
+            console.log(data)
+            if (data.error) {
                 alert(
-                    'Um erro aconteceu ao tentar entrar no lobby: ' + e.message
+                    'Um erro aconteceu ao tentar entrar no lobby: ' + data.error
                 )
                 setLoading(false)
-            })
+                onBackToHome()
+            }
         }
     }
 
     useEffect(() => {
-        listen('acceptConnect', (data: { players: Player[]; port: string }) => {
-            setConnectedPlayers(data.players)
-            onPortChange(data.port)
-            setLoading(false)
-        })
+        listen(
+            'acceptConnect',
+            (data: { players: Player[]; address: string }) => {
+                setConnectedPlayers(data.players)
+                onAddressChange(data.address)
+                setLoading(false)
+            }
+        )
 
         listen(
             'startGame',
@@ -365,13 +371,13 @@ export default function LobbyPage({
                                     </div>
 
                                     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                                        {isHost && port && (
+                                        {isHost && address && (
                                             <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
                                                 <p className="text-sm font-semibold text-amber-700">
-                                                    Porta do lobby
+                                                    Endereço da partida:
                                                 </p>
                                                 <p className="mt-1 font-mono text-lg font-semibold text-slate-800">
-                                                    {port}
+                                                    {address}
                                                 </p>
                                             </div>
                                         )}

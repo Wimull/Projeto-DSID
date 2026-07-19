@@ -7,6 +7,7 @@ import {
     connections,
     connect,
     sendMessage as socketSendMessage,
+    SERVER_ADDRESS,
 } from './server'
 
 import * as game from './game'
@@ -183,7 +184,7 @@ function becomeLeader(player: ServerSidePlayer, notify = true) {
 export function startLeaderElection({
     notify = true,
 }: { notify?: boolean } = {}) {
-    const connectedPlayers = Array.from(game.connectedPlayersList.values())
+    let connectedPlayers = Array.from(game.connectedPlayersList.values())
     if (connectedPlayers.length === 0) {
         leaderElectionState.leaderId = null
         leaderElectionState.votedFor = null
@@ -192,8 +193,10 @@ export function startLeaderElection({
         return undefined
     }
     //@ts-ignore
-    connectedPlayers.sort((pa, pb) => pa.id > pb.id)
-
+    connectedPlayers = connectedPlayers.sort((pa, pb) =>
+        pa.id.localeCompare(pb.id)
+    )
+    console.log(connectedPlayers)
     leaderElectionState.currentTerm += 1
     const candidate = connectedPlayers[0]
     leaderElectionState.votedFor = candidate.id
@@ -323,7 +326,8 @@ export function disconnectPlayer(player: ServerSidePlayer) {
             playerId: player.clientFakeId,
         },
     })
-    connections.get(`${player.address}:${player.port}`)?.end()
+    connections.get(player.serverId)?.end()
+    connections.delete(player.serverId)
 }
 
 export function onMessage(
@@ -373,7 +377,7 @@ export function onMessage(
                     type: 'push',
                     name: 'acceptConnect',
                     args: {
-                        port: SERVER_PORT,
+                        address: `${SERVER_ADDRESS}:${SERVER_PORT}`,
                         players: Array.from(
                             game.connectedPlayersList.values()
                         ).map((p) => ({
@@ -455,7 +459,7 @@ export function onMessage(
                 type: 'push',
                 name: 'acceptConnect',
                 args: {
-                    port: SERVER_PORT,
+                    address: `${SERVER_ADDRESS}:${SERVER_PORT}`,
                     players: data.players.map((p) => ({
                         name: p.name,
                         hand: p.hand,

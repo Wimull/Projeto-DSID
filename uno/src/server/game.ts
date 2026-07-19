@@ -184,7 +184,7 @@ export function disconnectPlayer(playerId: string) {
         game.players = game.players
             .filter((p) => p.id !== playerId)
             //@ts-ignore
-            .sort((pa, pb) => pa.id > pb.id)
+            .sort((pa, pb) => pa.id.localeCompare(pb.id))
         return game
     }
 }
@@ -202,7 +202,7 @@ export function startGame(
                 ...p,
                 isUser: p.id === user.id,
             })) //@ts-ignore
-            .sort((pa, pb) => pa.id > pb.id)
+            .sort((pa, pb) => pa.id.localeCompare(pb.id))
         game.players.forEach((p) => {
             connectedPlayersList.set(p.id, {
                 ...connectedPlayersList.get(p.id)!,
@@ -243,7 +243,7 @@ export function startGame(
             isUser: p.id === user.id,
         }))
         //@ts-ignore
-        .sort((pa, pb) => pa.id > pb.id)
+        .sort((pa, pb) => pa.id.localeCompare(pb.id))
     game.playerTurnId =
         players[Math.round(Math.random() * 10) % players.length].id
     game.playOrder = 'up'
