@@ -181,7 +181,10 @@ export function disconnectPlayer(playerId: string) {
         // Same issue as in playCard: .filter() doesn't mutate in place, the
         // result has to be assigned back or the player never actually
         // leaves the game.
-        game.players = game.players.filter((p) => p.id !== playerId)
+        game.players = game.players
+            .filter((p) => p.id !== playerId)
+            //@ts-ignore
+            .sort((pa, pb) => pa.id > pb.id)
         return game
     }
 }
@@ -194,10 +197,12 @@ export function startGame(
     if (starterGame) {
         game = starterGame
         game.random = mulberry32(game.seed)
-        game.players = game.players.map((p) => ({
-            ...p,
-            isUser: p.id === user.id,
-        }))
+        game.players = game.players
+            .map((p) => ({
+                ...p,
+                isUser: p.id === user.id,
+            })) //@ts-ignore
+            .sort((pa, pb) => pa.id > pb.id)
         game.players.forEach((p) => {
             connectedPlayersList.set(p.id, {
                 ...connectedPlayersList.get(p.id)!,
@@ -232,10 +237,13 @@ export function startGame(
         }
         return p
     })
-    game.players = game.players.map((p) => ({
-        ...p,
-        isUser: p.id === user.id,
-    }))
+    game.players = game.players
+        .map((p) => ({
+            ...p,
+            isUser: p.id === user.id,
+        }))
+        //@ts-ignore
+        .sort((pa, pb) => pa.id > pb.id)
     game.playerTurnId =
         players[Math.round(Math.random() * 10) % players.length].id
     game.playOrder = 'up'
@@ -416,13 +424,12 @@ export function playCard(
         }
     } else if (card.includes('Reverse')) {
         newGame.playOrder = newGame.playOrder === 'up' ? 'down' : 'up'
-
         nextPlayerTurnId =
             newGame.players[
                 Math.abs(
                     (newGame.playOrder === 'up'
-                        ? index - (1 + 0)
-                        : index + 1 + 0) % newGame.players.length
+                        ? index + (1 + 0)
+                        : index - (1 + 0)) % newGame.players.length
                 )
             ]!.id
         return {
@@ -553,7 +560,8 @@ export function validateAction(
                             )
                         ]!.id
                 }
-
+                console.trace('ValidateAction')
+                console.log(nextPlayerTurnId, action, game)
                 return nextPlayerTurnId === action.nextPlayerTurnId
             }
             return false
