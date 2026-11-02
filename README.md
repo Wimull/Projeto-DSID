@@ -1,125 +1,168 @@
 # Uno P2P
 
-Implementação do jogo **Uno** como aplicação desktop (Electron + React), em que as partidas acontecem **peer-to-peer**, sem servidor central: cada jogador roda uma instância da aplicação que atua simultaneamente como **cliente** (interface) e **servidor de jogo** (estado + rede), conectando-se diretamente às instâncias dos outros jogadores por TCP.
+An implementation of the **Uno** card game as a desktop application built with Electron and React. Games run **peer-to-peer**, without a central server: each player runs an application instance that acts as both a **client** (user interface) and a **game server** (state and networking), connecting directly to the other players over TCP.
 
-## Sumário
+## Table of contents
 
-- [Visão geral](#visão-geral)
-- [Arquitetura](#arquitetura)
-- [Modelo de consistência](#modelo-de-consistência)
-- [Tolerância a falhas](#tolerância-a-falhas)
-- [Stack técnica](#stack-técnica)
-- [Estrutura de pastas](#estrutura-de-pastas)
-- [Como rodar](#como-rodar)
-- [Fluxo de uma partida](#fluxo-de-uma-partida)
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Consistency model](#consistency-model)
+- [Fault tolerance](#fault-tolerance)
+- [Technology stack](#technology-stack)
+- [Project structure](#project-structure)
+- [Getting started](#getting-started)
+- [Game flow](#game-flow)
+- [Project roadmap](#project-roadmap)
 
-## Visão geral
+## Overview
 
-O jogo segue as regras clássicas do Uno (compra, descarte, pular, reverter, +2, coringa, +4) para 2 a 4 jogadores. Não existe um servidor dedicado: o jogador que cria o lobby vira o **host** inicial, e todos os demais participantes se conectam diretamente a ele e entre si, formando uma malha (mesh) de conexões TCP. O host tem papel de coordenador do consenso, mas o estado do jogo é replicado em todos os participantes e pode ser reeleito dinamicamente caso o host caia.
+The game follows the classic Uno rules (draw, discard, skip, reverse, +2, wild, and +4) for 2 to 4 players. There is no dedicated server: the player who creates the lobby becomes the initial **host**, and all other participants connect directly to that player and to one another, forming a mesh of TCP connections. The host coordinates consensus, but the game state is replicated among all participants and the host can be dynamically re-elected if it disconnects.
 
-## Arquitetura
+## Architecture
 
-Cada instância do Electron roda três camadas lógicas dentro do mesmo processo:
+Each Electron instance runs three logical layers:
 
-1. **Renderer (React / UI)** — `App.tsx`, `HomePage.tsx`, `LobbyPage.tsx`, `GamePage.tsx`. Não tem acesso direto ao Node.js; fala com a camada de servidor local através de `client-ipc.ts`, que expõe `send(name, args)` (RPC com Promise) e `listen(name, cb)` (assinatura de eventos push).
-2. **Preload / "servidor embutido"** — `preload.ts` expõe via `contextBridge` as pontes `getServerSocket`, `ipcConnect` e `uuid` para o renderer, e inicializa localmente (no mesmo processo) o módulo de servidor (`server.ts`, `server-ipc.ts`, `server-handlers.ts`, `callbacks.ts`, `game.ts`) assim que recebe o evento `set-socket` do processo principal.
-3. **Servidor local (IPC) + rede P2P (TCP)** — a comunicação **UI ↔ lógica de jogo**, dentro da mesma máquina, acontece via socket local do `node-ipc` (nome descoberto dinamicamente por `find-open-socket.ts`, testando `myapp1`, `myapp2`, ... até achar um livre — permite rodar múltiplas instâncias na mesma máquina para teste). Já a comunicação **entre jogadores diferentes** acontece por sockets TCP brutos (`net` do Node), abertos em `server.ts`, com mensagens JSON delimitadas por `\n` (necessário porque TCP é um fluxo de bytes e pode concatenar ou fragmentar mensagens — ver `handleIncomingData`).
+1. **Renderer (React / UI)** — `App.tsx`, `HomePage.tsx`, `LobbyPage.tsx`, and `GamePage.tsx`. It has no direct access to Node.js; it communicates with the local server layer through `client-ipc.ts`, which exposes `send(name, args)` (RPC with a Promise) and `listen(name, cb)` (push-event subscription).
+2. **Preload / embedded server** — `preload.ts` exposes the `getServerSocket`, `ipcConnect`, and `uuid` bridges to the renderer through `contextBridge`. It also initializes the server modules (`server.ts`, `server-ipc.ts`, `server-handlers.ts`, `callbacks.ts`, and `game.ts`) in the same process after receiving the `set-socket` event from the main process.
+3. **Local server (IPC) + P2P network (TCP)** — communication between the **UI and game logic** on the same machine uses a local `node-ipc` socket. Its name is discovered dynamically by `find-open-socket.ts`, which checks `myapp1`, `myapp2`, and so on; this allows multiple instances to run on the same machine for testing. Communication **between players on different machines** uses raw TCP sockets (`net` from Node.js), opened in `server.ts`, with JSON messages delimited by `\n`. This framing is necessary because TCP is a byte stream and can concatenate or fragment messages; see `handleIncomingData`.
 
 ```
-Jogador A (Electron)                       Jogador B (Electron)
-┌───────────────────────┐                  ┌───────────────────────┐
-│ Renderer (React)       │                  │ Renderer (React)       │
-│   client-ipc.ts        │                  │   client-ipc.ts        │
-└──────────┬─────────────┘                  └──────────┬─────────────┘
-           │ node-ipc (socket local)                    │ node-ipc (socket local)
-┌──────────▼─────────────┐                  ┌──────────▼─────────────┐
-│ Preload + server-*.ts   │◄──── TCP (net) ─►│ Preload + server-*.ts   │
-│ game.ts / callbacks.ts  │   mensagens JSON │ game.ts / callbacks.ts  │
-└─────────────────────────┘   \n-delimitadas └─────────────────────────┘
+Player A (Electron)                         Player B (Electron)
+┌───────────────────────┐                   ┌───────────────────────┐
+│ Renderer (React)      │                   │ Renderer (React)      │
+│   client-ipc.ts       │                   │   client-ipc.ts       │
+└──────────┬────────────┘                   └──────────┬────────────┘
+           │ node-ipc (local socket)                    │ node-ipc (local socket)
+┌──────────▼────────────┐                   ┌──────────▼────────────┐
+│ Preload + server-*.ts  │◄──── TCP (net) ──►│ Preload + server-*.ts  │
+│ game.ts / callbacks.ts │   JSON messages   │ game.ts / callbacks.ts │
+└────────────────────────┘   delimited by \n └────────────────────────┘
 ```
 
-### Fluxo de conexão
+### Connection flow
 
-- **Criar lobby** (`createLobby`): gera IDs, vira automaticamente o host.
-- **Entrar em lobby** (`connectToLobby`): conecta via TCP no `ip:porta` informado, envia `TryConnect`.
-- O host responde `ConnectionAccepted` com a lista de jogadores já conectados; o novo jogador então se conecta diretamente a **cada um deles** (`Connect`), formando a malha completa — todos falam com todos, não só com o host.
+- **Create a lobby** (`createLobby`): generates IDs and automatically makes the player the host.
+- **Join a lobby** (`connectToLobby`): connects to the provided `ip:port` over TCP and sends `TryConnect`.
+- The host responds with `ConnectionAccepted` and the list of connected players. The new player then connects directly to each of them (`Connect`), forming a complete mesh: everyone communicates with everyone, not only with the host.
 
-## Modelo de consistência
+## Consistency model
 
-O jogo usa um modelo de **estado replicado com coordenação por líder e validação por quórum**, inspirado em ideias de eleição de líder ao estilo Raft:
+The game uses a **replicated-state model with leader coordination and quorum validation**, inspired by leader-election concepts such as Raft:
 
-- **Estado replicado:** cada peer mantém uma cópia completa do `Game` (baralho, mãos, carta na mesa, turno, sentido do jogo). O baralho é gerado deterministicamente a partir de uma *seed* (`mulberry32`) compartilhada no `StartGame`, garantindo que todos os clientes cheguem ao mesmo embaralhamento sem precisar transmitir o baralho inteiro.
-- **Eleição de líder** (`callbacks.ts`): mantém `currentTerm`, `votedFor` e `leaderId`; a cada nova eleição, o candidato é escolhido deterministicamente (menor/maior `id` entre os conectados) e precisa de maioria (`> metade`) dos votos para assumir. Há um timer de eleição (5s) que dispara nova eleição se o líder ficar em silêncio.
-- **Consenso por quórum nas jogadas** (`ActionDecision` / `ActionPassed` / `ActionDenied`): quando um jogador executa uma ação (comprar ou jogar carta), a jogada é proposta a todos os peers, que rodam `validateAction` localmente contra o estado que possuem e votam `pass`/`notPass`. A ação só é efetivada (`applyApprovedAction`) quando a maioria aprova — isso impede que um único peer (incluindo o próprio host) force um estado inválido sem que os demais concordem.
-- **Detecção de host malicioso:** se o host tenta aplicar uma jogada que os outros peers consideram inválida (`ActionDenied` reprovado por `validateAction`), os clientes identificam a tentativa ("Host tentou roubar no jogo"), encerram a conexão com ele e disparam nova eleição de líder.
-- **Entrega confiável sobre TCP:** cada mensagem de protocolo (exceto `ACK`) é numerada e reenviada automaticamente (`resendTimeoutFunction`, 1s) até receber confirmação (`ACK`) do destinatário, compensando perda de pacote/mensagem em trânsito.
+- **Replicated state:** each peer keeps a complete copy of the `Game` (deck, hands, top card, turn, and game direction). The deck is generated deterministically from a shared *seed* (`mulberry32`) sent in `StartGame`, so all clients produce the same shuffle without transmitting the entire deck.
+- **Leader election** (`callbacks.ts`): maintains `currentTerm`, `votedFor`, and `leaderId`. Each election candidate is selected deterministically (the lowest/highest connected `id`) and needs a majority (`> half`) of votes to take over. An election timer (5 seconds) starts a new election if the leader becomes unresponsive.
+- **Quorum-based move consensus** (`ActionDecision` / `ActionPassed` / `ActionDenied`): when a player performs an action (draw or play a card), the move is proposed to all peers. They run `validateAction` against their local state and vote `pass` or `notPass`. The move is applied (`applyApprovedAction`) only after a majority approves it. This prevents a single peer, including the host, from forcing an invalid state without the others agreeing.
+- **Malicious-host detection:** if the host tries to apply a move that other peers consider invalid (`ActionDenied` rejected by `validateAction`), clients identify the attempt ("Host tried to cheat"), end their connection to that host, and start a new leader election.
+- **Reliable delivery over TCP:** each protocol message (except `ACK`) is numbered and automatically resent (`resendTimeoutFunction`, 1 second) until acknowledged by the recipient.
 
-## Tolerância a falhas
+## Fault tolerance
 
-- **Heartbeat / Keep-alive:** cada peer envia `KeepAlive` a cada 5s; se nenhuma mensagem chega de um peer em 15s (`endConnectionTimeoutDelay`), ele é considerado desconectado e removido da partida.
-- **Desconexão de jogador comum:** o jogador é removido de `connectedPlayersList` e da lista de jogadores da partida; se era a vez dele, o turno avança automaticamente para o próximo.
-- **Queda do host/líder:** dispara `startLeaderElection`, elegendo um novo host entre os jogadores restantes e notificando todos (`changeHost`) para atualizar a UI.
-- **Reenvio de mensagens não confirmadas:** garante que instabilidades momentâneas de rede não derrubem a sincronização do estado.
-- **Fila de mensagens do cliente:** se a UI tentar enviar algo antes do socket local estar pronto, a mensagem fica em `messageQueue` e é disparada assim que a conexão local abre.
+- **Heartbeat / keep-alive:** each peer sends `KeepAlive` every 5 seconds. If no message is received from a peer for 15 seconds (`endConnectionTimeoutDelay`), it is considered disconnected and removed from the game.
+- **Regular player disconnects:** the player is removed from `connectedPlayersList` and the game’s player list; if it was their turn, the turn automatically advances to the next player.
+- **Host/leader failure:** triggers `startLeaderElection`, electing a new host from the remaining players and notifying everyone (`changeHost`) so the UI can be updated.
+- **Resending unacknowledged messages:** helps prevent temporary network instability from desynchronizing game state.
+- **Client message queue:** if the UI sends a message before the local socket is ready, it is stored in `messageQueue` and sent once the local connection opens.
 
-## Stack técnica
+## Technology stack
 
-- **Electron** (processo principal + preload + renderer) via **Electron Forge** com **Vite**
-- **React 19** + **Tailwind CSS 4** na interface
-- **node-ipc** para RPC local entre renderer e a camada de servidor embutida
-- **net** (TCP puro do Node) para a comunicação P2P entre jogadores
-- **TypeScript** em toda a base de código
-- **uuid** para identificadores de jogador/carta/mensagem
+- **Electron** (main process, preload, and renderer) with **Electron Forge** and **Vite**
+- **React 19** and **Tailwind CSS 4** for the user interface
+- **node-ipc** for local RPC between the renderer and embedded server layer
+- **Node.js `net`** (raw TCP) for P2P communication between players
+- **TypeScript** throughout the codebase
+- **uuid** for player, card, and message identifiers
 
-## Estrutura de pastas
+## Project structure
 
 ```
 src/
-├── main.ts                # processo principal do Electron
-├── preload.ts              # ponte contextBridge + boot do servidor embutido
-├── find-open-socket.ts     # descoberta de socket local livre (multi-instância)
-├── client-ipc.ts           # RPC/eventos do renderer com a camada de servidor
-├── globals.d.ts            # tipagem global (window.send/listen/unlisten)
+├── main.ts                  # Electron main process
+├── preload.ts               # contextBridge and embedded-server startup
+├── find-open-socket.ts      # discovers an available local socket (multi-instance)
+├── client-ipc.ts            # renderer RPC/events with the server layer
+├── globals.d.ts             # global types (window.send/listen/unlisten)
 ├── renderer/
 │   ├── index.tsx / App.tsx
 │   └── components/
-│       ├── HomePage.tsx    # tela inicial (criar/entrar em lobby)
-│       ├── LobbyPage.tsx   # sala de espera, ready-up, lista de jogadores
-│       └── GamePage.tsx    # tabuleiro, mão, jogadas, vitória
+│       ├── HomePage.tsx     # start screen (create/join a lobby)
+│       ├── LobbyPage.tsx    # waiting room, ready-up, player list
+│       └── GamePage.tsx     # board, hand, moves, and victory
 └── server/
-    ├── server.ts           # servidor TCP P2P, buffers, conexões
-    ├── server-ipc.ts        # ponte local (node-ipc) entre preload e renderer
-    ├── server-handlers.ts    # handlers RPC chamados pelo `send()` do renderer
-    ├── callbacks.ts          # protocolo de rede: eleição de líder, consenso, ACK/keep-alive
-    ├── game.ts               # regras do Uno, baralho, validação de jogadas
-    └── types.ts              # tipos compartilhados (Card, Player, Game, Message)
+    ├── server.ts            # P2P TCP server, buffers, and connections
+    ├── server-ipc.ts        # local bridge between preload and renderer (node-ipc)
+    ├── server-handlers.ts   # RPC handlers called by renderer `send()`
+    ├── callbacks.ts         # network protocol: leader election, consensus, ACK/keep-alive
+    ├── game.ts              # Uno rules, deck, and move validation
+    └── types.ts             # shared types (Card, Player, Game, Message)
 ```
 
-## Como rodar
+## Getting started
 
 ```bash
 npm install
-npm run dev                  # abre a aplicação em modo desenvolvimento (electron-forge start)
-npm run --force start        # caso a aplicação não inicie
+npm run dev                  # opens the app in development mode (electron-forge start)
+npm run --force start        # try this if the application does not start
 ```
 
-Para testar o modo multiplayer localmente, basta abrir múltiplas instâncias do app na mesma máquina (o `find-open-socket.ts` evita conflito de socket local entre elas) e conectar uma na outra usando `IP:porta` exibido ao criar o lobby, ou entre máquinas diferentes na mesma rede.
+To test multiplayer locally, open multiple app instances on the same machine (`find-open-socket.ts` avoids local socket conflicts) and connect them using the `IP:port` displayed when creating a lobby. Players can also connect from different machines on the same network.
 
-Outros scripts úteis:
+Other useful scripts:
 
 ```bash
-npm run lint      # eslint em .ts/.tsx
-npm run package   # empacota a aplicação
-npm run make      # gera instaladores (Squirrel, deb, rpm, zip)
+npm run lint      # run ESLint on .ts/.tsx files
+npm run package   # package the application
+npm run make      # generate installers (Squirrel, deb, rpm, zip)
 ```
 
-## Fluxo de uma partida
+## Game flow
 
-1. Um jogador clica em **Criar lobby**, informa o nome → vira host, recebe `porta` do servidor TCP.
-2. Outros jogadores clicam em **Entrar no lobby**, informam `ip:porta` do host → conectam via TCP e recebem a lista de jogadores já presentes, conectando-se também entre si.
-3. Na tela de lobby, cada jogador marca **pronto**; o host inicia a partida quando todos estiverem prontos.
-4. `startGame` embaralha o baralho (seed compartilhada), distribui 7 cartas para cada jogador e define o primeiro turno — o resultado é replicado para todos via `StartGame`.
-5. A cada jogada (comprar ou jogar carta), a ação é validada por consenso entre os peers antes de ser aplicada e propagada.
-6. Cartas especiais (`Stop`, `Reverse`, `+2`, coringa `+4`) alteram turno/sentido/mão conforme as regras clássicas.
-7. O primeiro jogador a ficar sem cartas vence; a vitória é sinalizada a todos os peers.
-8. Jogadores podem sair a qualquer momento; desconexões são detectadas por keep-alive/timeout e tratadas sem travar a partida para os demais (incluindo reeleição de host, se necessário).
+1. A player selects **Create lobby**, enters a name, becomes the host, and receives the TCP server port.
+2. Other players select **Join lobby**, enter the host’s `ip:port`, connect over TCP, and receive the list of existing players. They also connect to one another.
+3. In the lobby, each player marks themselves **ready**. The host starts the game when everyone is ready.
+4. `startGame` shuffles the deck (using the shared seed), deals 7 cards to each player, and selects the first turn. The result is replicated to all peers through `StartGame`.
+5. Before each move (drawing or playing a card), peers reach consensus on whether the action is valid.
+6. Special cards (`Skip`, `Reverse`, `+2`, and `+4`) change the turn, direction, or hand according to the classic rules.
+7. The first player to run out of cards wins, and the victory is announced to all peers.
+8. Players can leave at any time. Keep-alive timeouts detect disconnects and handle them without blocking the remaining players, including re-electing the host when needed.
+
+## Project roadmap
+
+The following items are planned improvements and are not necessarily implemented yet.
+
+### 1. Reliability and testing
+
+- [ ] Add unit tests for deck generation, Uno rules, turn progression, and action validation.
+- [ ] Add integration tests for lobby creation, joining, consensus, and peer disconnections.
+- [ ] Cover network edge cases such as duplicate messages, delayed acknowledgements, and reconnect attempts.
+- [ ] Add continuous integration (CI) to run linting, tests, and build checks on every change.
+
+### 2. Code architecture and maintainability
+
+- [ ] Separate game rules, networking, state management, and UI into clearly defined modules.
+- [ ] Define and validate versioned network message schemas to make protocol changes safer.
+- [ ] Reduce coupling between Electron IPC, the renderer, and game logic with typed interfaces.
+- [ ] Document key protocol decisions, state transitions, and error-handling conventions.
+- [ ] Add structured logs and diagnostics to make multiplayer issues easier to investigate.
+
+### 3. Social and communication features
+
+- [ ] Add a friends system with player search, friend requests, and an online status.
+- [ ] Add text chat to lobbies and active games, with basic moderation controls.
+- [ ] Add optional voice chat for players in a lobby or game, with mute and per-player volume controls.
+- [ ] Add invite links or shareable lobby codes to make joining a game easier.
+
+### 4. Gameplay and user experience
+
+- [ ] Add reconnect-and-resume support so a disconnected player can rejoin an ongoing game.
+- [ ] Add configurable house rules, such as stacking draw cards and choosing the starting player.
+- [ ] Add player profiles, match history, and optional statistics or leaderboards.
+- [ ] Add sound effects, music controls, and clear audio/notification settings.
+- [ ] Improve accessibility with keyboard navigation, readable color contrast, and color-blind-friendly card indicators.
+- [ ] Add localization support for the interface and in-game messages.
+
+### 5. Packaging, deployment, and security
+
+- [ ] Dockerize the development and test environment to make setup consistent across machines.
+- [ ] Automate desktop packaging and release builds for supported operating systems.
+- [ ] Review P2P connection security, input validation, and safe handling of untrusted network messages.
+- [ ] Add application update and release-version checks.
